@@ -12,7 +12,7 @@ export async function GET() {
   let hasMore = true;
   let totalProcessed = 0;
 
-  // Safety limit to prevent local timeout during initial testing
+  // Maintaining the 5,000 limit for the local test
   const MAX_RECORDS = 5000; 
 
   while (hasMore && totalProcessed < MAX_RECORDS) {
@@ -21,13 +21,11 @@ export async function GET() {
     const res = await fetch(ODATA_URL);
     const data = await res.json();
 
-    // If no more data is returned, exit the loop
     if (data.length === 0) {
       hasMore = false;
       break;
     }
 
-    // Upsert the current batch to Supabase
     for (const carrier of data) {
       await supabase.from('carriers').upsert({
         usdot_number: carrier.usdot_number,
@@ -35,19 +33,19 @@ export async function GET() {
         legal_name: carrier.legal_name,
         op_auth_status: carrier.op_auth_status,
         op_auth_type: carrier.op_auth_type,
+        // The new mapping to backfill the phone numbers
+        phone_number: carrier.bus_telno || null,
       }, { onConflict: 'usdot_number' }); 
     }
 
-    // Increment the offset to get the next chunk on the next loop
     offset += limit;
     totalProcessed += data.length;
     
-    // Log progress in your VS Code terminal
-    console.log(`Processed ${totalProcessed} records...`);
+    console.log(`Processed ${totalProcessed} records with phone numbers...`);
   }
 
   return NextResponse.json({ 
-    message: 'Batch sync complete', 
+    message: 'Backfill sync complete', 
     total_processed: totalProcessed 
   });
 }
