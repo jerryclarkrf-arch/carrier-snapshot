@@ -16,44 +16,50 @@ async function runFullSeed() {
   let hasMore = true;
   let totalProcessed = 0;
 
-  console.log('Initiating complete FMCSA database seed...');
-  console.log('This will process over 1 million records. Grab a coffee!\n');
+  console.log('Initiating complete Master FMCSA database seed...');
+  console.log('This will process over 1.86 million records. Grab a coffee!\n');
 
   while (hasMore) {
-    const url = `https://data.transportation.gov/resource/inys-ebih.json?$limit=${limit}&$offset=${offset}`;
+    // Using Socrata's internal :id for bulletproof deep pagination
+    const url = `https://data.transportation.gov/resource/6eyk-hxee.json?$limit=${limit}&$offset=${offset}&$order=:id`;
     
     try {
       const res = await fetch(url);
       const data = await res.json();
 
-      if (!data || data.length === 0) {
+      // Catch API error objects (like Rate Limits or Bad Requests) instead of crashing
+      if (!Array.isArray(data)) {
+        console.error(`\n❌ API Rejected the Request. Status: ${res.status}`);
+        console.error('API Response Payload:', data);
+        throw new Error('API returned an error object instead of an array.');
+      }
+
+      if (data.length === 0) {
         hasMore = false;
-        console.log('\n\n✅ Database seed completely finished!');
+        console.log('\n\n✅ Master Database seed completely finished!');
         break;
       }
 
-      // 1. Deduplicate the batch to prevent PostgreSQL ON CONFLICT errors
       const uniqueCarriers = new Map();
       
       for (const carrier of data) {
-        // Skip if there is no USDOT number (bad data)
-        if (!carrier.usdot_number) continue; 
+        const rawDot = carrier.usdot_number || carrier.dot_number;
+        if (!rawDot) continue; 
         
-        // A Map automatically overwrites older duplicates with the newest data
-        uniqueCarriers.set(carrier.usdot_number, {
-          usdot_number: carrier.usdot_number,
-          docket_number: carrier.docket_number || null,
-          legal_name: carrier.legal_name || null,
+        const normalizedDot = String(rawDot).replace(/^0+/, '');
+        
+        uniqueCarriers.set(normalizedDot, {
+          usdot_number: normalizedDot,
+          docket_number: carrier.docket_number || carrier.mc_mx_ff_number || null,
+          legal_name: carrier.legal_name || carrier.carrier_name || null,
           op_auth_status: carrier.op_auth_status || null,
           op_auth_type: carrier.op_auth_type || null,
-          phone_number: carrier.bus_telno || null,
+          phone_number: carrier.bus_telno || carrier.telephone || null,
         });
       }
 
-      // 2. Convert the Map back into a standard array for Supabase
       const batch = Array.from(uniqueCarriers.values());
 
-      // 3. Send the clean, deduplicated batch to the database
       const { error } = await supabase.from('carriers').upsert(batch, { onConflict: 'usdot_number' });
 
       if (error) throw error;

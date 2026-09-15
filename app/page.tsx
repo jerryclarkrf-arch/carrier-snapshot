@@ -37,16 +37,22 @@ export default function Home() {
     if (!query.trim() && statusFilter === 'All') return;
     setLoading(true);
 
-    // Join the insurance_policies table via Supabase nested select
     let dbQuery = supabase
       .from('carriers')
       .select('*, insurance_policies(*)');
 
     if (query.trim()) {
       const q = query.trim();
-      dbQuery = dbQuery.or(
-        `usdot_number.eq.${q},docket_number.eq.${q},legal_name.ilike.%${q}%`
-      );
+      
+      // If the query is strictly numbers (USDOT or MC), skip the slow name scan
+      if (/^\d+$/.test(q)) {
+        dbQuery = dbQuery.or(`usdot_number.eq.${q},docket_number.eq.${q}`);
+      } else {
+        // If it contains letters, do the full wildcard search
+        dbQuery = dbQuery.or(
+          `usdot_number.eq.${q},docket_number.eq.${q},legal_name.ilike.%${q}%`
+        );
+      }
     }
 
     if (statusFilter !== 'All') {
@@ -54,9 +60,13 @@ export default function Home() {
     }
 
     const { data, error } = await dbQuery.limit(25);
-    if (!error && data) {
+    
+    if (error) {
+      console.error("Supabase Error:", error.message);
+    } else if (data) {
       setResults(data as Carrier[]);
     }
+    
     setLoading(false);
   }
 
