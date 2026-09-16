@@ -71,39 +71,33 @@ export default function Home() {
   }
 
   const getBadgeStyle = (status: string | null) => {
-    switch (status) {
-      case 'Active':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-      case 'Pending':
-        return 'bg-amber-100 text-amber-800 border-amber-300';
-      case 'Inactive':
-      case 'Withdrawn':
-        return 'bg-rose-100 text-rose-800 border-rose-300';
-      default:
-        return 'bg-slate-100 text-slate-700 border-slate-300';
-    }
+    // Convert to lowercase to handle both 'Active' (Motus) and 'ACTIVE' (Legacy)
+    const s = status?.toLowerCase() || '';
+    if (s === 'active') return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+    if (s === 'pending') return 'bg-amber-100 text-amber-800 border-amber-300';
+    if (s === 'inactive' || s === 'withdrawn') return 'bg-rose-100 text-rose-800 border-rose-300';
+    return 'bg-slate-100 text-slate-700 border-slate-300';
   };
 
-  const formatInsuranceType = (code: string) => {
-    switch (code) {
-      case '1':
-        return 'BI&PD (Liability)';
-      case '2':
-        return 'Cargo';
-      case '3':
-        return 'Bond / Trust Fund';
-      default:
-        return code || 'General';
-    }
+  const formatInsuranceType = (code: string | null) => {
+    if (!code || code === 'UNKNOWN') return 'Liability / General';
+    const c = code.toUpperCase();
+    // Maps both new numeric codes (Motus) and old text codes (Legacy)
+    if (c === '1' || c === 'BIPD' || c === 'PRMY') return 'BI&PD (Liability)';
+    if (c === '2' || c === 'CARGO') return 'Cargo';
+    if (c === '3' || c === 'BOND' || c === 'SURETY') return 'Bond / Trust Fund';
+    return code;
   };
 
   const formatCurrency = (amount: number | null) => {
     if (!amount) return 'N/A';
+    // FMCSA stores coverage in thousands. This converts 750 into 750,000.
+    const trueAmount = amount < 10000 ? amount * 1000 : amount;
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       maximumFractionDigits: 0,
-    }).format(amount);
+    }).format(trueAmount);
   };
 
   return (
