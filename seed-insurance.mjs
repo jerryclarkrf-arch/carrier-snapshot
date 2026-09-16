@@ -49,7 +49,8 @@ async function runInsuranceSeed() {
         
         uniquePolicies.set(compositeKey, {
           usdot_number: normalizedDot,
-          insurance_company_name: policy.insurance_company_name || null,
+          // Added the legacy 'insurance_carrier' key below
+          insurance_company_name: policy.insurance_company_name || policy.insurance_carrier || null,
           policy_no: policyNo,
           ins_type_code: typeCode,
           max_cov_amount: policy.max_cov_amount ? parseFloat(policy.max_cov_amount) : null,

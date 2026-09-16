@@ -52,7 +52,8 @@ async function runFullSeed() {
           usdot_number: normalizedDot,
           docket_number: carrier.docket_number || carrier.mc_mx_ff_number || null,
           legal_name: carrier.legal_name || carrier.carrier_name || null,
-          op_auth_status: carrier.op_auth_status || null,
+          // Added the legacy 'operating_status' key below
+          op_auth_status: carrier.op_auth_status || carrier.operating_status || null,
           op_auth_type: carrier.op_auth_type || null,
           phone_number: carrier.bus_telno || carrier.telephone || null,
         });
