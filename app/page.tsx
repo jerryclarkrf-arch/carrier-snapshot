@@ -28,8 +28,10 @@ interface Carrier {
   usdot_number: string;
   docket_number: string | null;
   legal_name: string | null;
+  dot_status: string | null;       
   op_auth_status: string | null;
   op_auth_type: string | null;
+  status_reason: string | null;    
   phone_number: string | null;
   email_address: string | null;
   mcs150_date: string | null;
@@ -89,9 +91,9 @@ export default function Home() {
 
   const getBadgeStyle = (status: string | null) => {
     const s = status?.toLowerCase() || '';
-    if (s === 'active') return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-    if (s === 'pending') return 'bg-amber-100 text-amber-800 border-amber-300';
-    if (s === 'inactive' || s === 'withdrawn') return 'bg-rose-100 text-rose-800 border-rose-300';
+    if (s === 'active' || s === 'a') return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+    if (s === 'pending' || s === 'p') return 'bg-amber-100 text-amber-800 border-amber-300';
+    if (s === 'inactive' || s === 'withdrawn' || s === 'i') return 'bg-rose-100 text-rose-800 border-rose-300';
     return 'bg-slate-100 text-slate-700 border-slate-300';
   };
 
@@ -128,10 +130,10 @@ export default function Home() {
     if (!cargo) return null;
     const tags: string[] = [];
     if (cargo.general_freight === 'Y' || cargo.general_freight === 'X') tags.push('General Freight');
-    if (cargo.refrigerated === 'Y' || cargo.refrigerated === 'X') tags.push('Refrigerated');
-    if (cargo.fresh_produce === 'Y' || cargo.fresh_produce === 'X') tags.push('Produce');
-    if (cargo.meat === 'Y' || cargo.meat === 'X') tags.push('Meat');
-    if (cargo.hazmat === 'Y' || cargo.hazmat === 'X') tags.push('Hazmat');
+    if (cargo.refrigerated === 'Y' || cargo.refrigerated === 'X' || cargo.refrigerated === 'A') tags.push('Refrigerated');
+    if (cargo.fresh_produce === 'Y' || cargo.fresh_produce === 'X' || cargo.fresh_produce === 'A') tags.push('Produce');
+    if (cargo.meat === 'Y' || cargo.meat === 'X' || cargo.meat === 'A') tags.push('Meat');
+    if (cargo.hazmat === 'Y' || cargo.hazmat === 'X' || cargo.hazmat === 'A') tags.push('Hazmat');
 
     if (tags.length === 0) return null;
 
@@ -205,42 +207,52 @@ export default function Home() {
               key={carrier.usdot_number}
               className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4 hover:shadow-md transition duration-150"
             >
-              {/* Header: Name, IDs, Status */}
+              {/* Primary Status & Header Bar */}
               <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 border-b border-slate-100 pb-4">
                 <div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <h2 className="text-xl font-bold text-slate-900">
-                      {carrier.legal_name || 'Legal Name Not Listed'}
-                    </h2>
-                    <span
-                      className={`px-3 py-0.5 text-xs font-bold uppercase tracking-wider rounded-full border ${getBadgeStyle(
-                        carrier.op_auth_status
-                      )}`}
-                    >
-                      {carrier.op_auth_status || 'Unknown Status'}
+                  <h2 className="text-xl font-bold text-slate-900">
+                    {carrier.legal_name || 'Legal Name Not Listed'}
+                  </h2>
+
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600 mt-2">
+                    {/* USDOT & Status */}
+                    <span className="flex items-center gap-1.5">
+                      <strong className="text-slate-900">USDOT#</strong> {carrier.usdot_number}
+                      <span className="px-2 py-0.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded">
+                        {carrier.dot_status || 'Active'}
+                      </span>
                     </span>
+
+                    {/* MC Docket & Status */}
+                    {carrier.docket_number && (
+                      <span className="flex items-center gap-1.5">
+                        <strong className="text-slate-900">Carrier</strong> {carrier.docket_number}
+                        <span
+                          className={`px-2 py-0.5 text-xs font-bold uppercase tracking-wide rounded border ${getBadgeStyle(
+                            carrier.op_auth_status
+                          )}`}
+                        >
+                          {carrier.op_auth_status || 'Unknown'}
+                        </span>
+                      </span>
+                    )}
+
+                    {/* Status Reason (e.g., Reinstated) */}
+                    {carrier.status_reason && (
+                      <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        {carrier.status_reason}
+                      </span>
+                    )}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-slate-600 mt-1">
+                  {/* Contact Details */}
+                  <div className="flex flex-wrap items-center gap-x-4 text-xs text-slate-500 mt-2">
                     <span>
-                      <strong className="text-slate-900">USDOT:</strong> {carrier.usdot_number}
-                    </span>
-                    <span>
-                      <strong className="text-slate-900">Docket:</strong> {carrier.docket_number || 'N/A'}
-                    </span>
-                    <span>
-                      <strong className="text-slate-900">Phone:</strong>{' '}
-                      {carrier.phone_number ? (
-                        <a href={`tel:${carrier.phone_number}`} className="text-blue-600 hover:underline">
-                          {carrier.phone_number}
-                        </a>
-                      ) : (
-                        'None Listed'
-                      )}
+                      <strong>Phone:</strong> {carrier.phone_number || 'None Reported'}
                     </span>
                     {carrier.email_address && (
                       <span>
-                        <strong className="text-slate-900">Email:</strong>{' '}
+                        <strong>Email:</strong>{' '}
                         <a href={`mailto:${carrier.email_address}`} className="text-blue-600 hover:underline">
                           {carrier.email_address}
                         </a>
@@ -249,19 +261,15 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Fleet Metrics Badges */}
-                <div className="flex items-center gap-2 self-start">
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-center">
+                {/* Fleet Badges */}
+                <div className="flex items-center gap-2">
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-center min-w-[75px]">
                     <div className="text-[10px] uppercase font-bold text-slate-500">Power Units</div>
-                    <div className="text-base font-extrabold text-slate-800">
-                      {carrier.tot_pwr ?? '—'}
-                    </div>
+                    <div className="text-base font-extrabold text-slate-800">{carrier.tot_pwr ?? '—'}</div>
                   </div>
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-center">
-                    <div className="text-[10px] uppercase font-bold text-slate-500">CDL Drivers</div>
-                    <div className="text-base font-extrabold text-slate-800">
-                      {carrier.tot_cdl ?? '—'}
-                    </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-center min-w-[75px]">
+                    <div className="text-[10px] uppercase font-bold text-slate-500">Drivers</div>
+                    <div className="text-base font-extrabold text-slate-800">{carrier.tot_cdl ?? '—'}</div>
                   </div>
                 </div>
               </div>
