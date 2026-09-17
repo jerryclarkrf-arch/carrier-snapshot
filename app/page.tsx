@@ -16,6 +16,14 @@ interface InsurancePolicy {
   effective_date: string;
 }
 
+interface CargoClassifications {
+  general_freight?: string;
+  fresh_produce?: string;
+  meat?: string;
+  refrigerated?: string;
+  hazmat?: string;
+}
+
 interface Carrier {
   usdot_number: string;
   docket_number: string | null;
@@ -23,6 +31,19 @@ interface Carrier {
   op_auth_status: string | null;
   op_auth_type: string | null;
   phone_number: string | null;
+  email_address: string | null;
+  mcs150_date: string | null;
+  tot_pwr: number | null;
+  tot_cdl: number | null;
+  phy_street: string | null;
+  phy_city: string | null;
+  phy_state: string | null;
+  phy_zip: string | null;
+  mailing_street: string | null;
+  mailing_city: string | null;
+  mailing_state: string | null;
+  mailing_zip: string | null;
+  cargo_classifications?: CargoClassifications | null;
   insurance_policies?: InsurancePolicy[];
 }
 
@@ -43,12 +64,10 @@ export default function Home() {
 
     if (query.trim()) {
       const q = query.trim();
-      
-      // If the query is strictly numbers (USDOT or MC), skip the slow name scan
+      // Numeric optimization: skip full-text scan if input is pure digits
       if (/^\d+$/.test(q)) {
         dbQuery = dbQuery.or(`usdot_number.eq.${q},docket_number.eq.${q}`);
       } else {
-        // If it contains letters, do the full wildcard search
         dbQuery = dbQuery.or(
           `usdot_number.eq.${q},docket_number.eq.${q},legal_name.ilike.%${q}%`
         );
@@ -56,22 +75,19 @@ export default function Home() {
     }
 
     if (statusFilter !== 'All') {
-      dbQuery = dbQuery.eq('op_auth_status', statusFilter);
+      dbQuery = dbQuery.ilike('op_auth_status', statusFilter);
     }
 
     const { data, error } = await dbQuery.limit(25);
-    
-    if (error) {
-      console.error("Supabase Error:", error.message);
-    } else if (data) {
+    if (!error && data) {
       setResults(data as Carrier[]);
+    } else if (error) {
+      console.error('Supabase query error:', error.message);
     }
-    
     setLoading(false);
   }
 
   const getBadgeStyle = (status: string | null) => {
-    // Convert to lowercase to handle both 'Active' (Motus) and 'ACTIVE' (Legacy)
     const s = status?.toLowerCase() || '';
     if (s === 'active') return 'bg-emerald-100 text-emerald-800 border-emerald-300';
     if (s === 'pending') return 'bg-amber-100 text-amber-800 border-amber-300';
@@ -82,7 +98,6 @@ export default function Home() {
   const formatInsuranceType = (code: string | null) => {
     if (!code || code === 'UNKNOWN') return 'Liability / General';
     const c = code.toUpperCase();
-    // Maps both new numeric codes (Motus) and old text codes (Legacy)
     if (c === '1' || c === 'BIPD' || c === 'PRMY') return 'BI&PD (Liability)';
     if (c === '2' || c === 'CARGO') return 'Cargo';
     if (c === '3' || c === 'BOND' || c === 'SURETY') return 'Bond / Trust Fund';
@@ -91,7 +106,6 @@ export default function Home() {
 
   const formatCurrency = (amount: number | null) => {
     if (!amount) return 'N/A';
-    // FMCSA stores coverage in thousands. This converts 750 into 750,000.
     const trueAmount = amount < 10000 ? amount * 1000 : amount;
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -100,23 +114,58 @@ export default function Home() {
     }).format(trueAmount);
   };
 
+  const formatAddress = (
+    street: string | null,
+    city: string | null,
+    state: string | null,
+    zip: string | null
+  ) => {
+    const parts = [street, [city, state].filter(Boolean).join(', '), zip].filter(Boolean);
+    return parts.length > 0 ? parts.join(' ') : 'Not on file';
+  };
+
+  const renderCargoTags = (cargo: CargoClassifications | null | undefined) => {
+    if (!cargo) return null;
+    const tags: string[] = [];
+    if (cargo.general_freight === 'Y' || cargo.general_freight === 'X') tags.push('General Freight');
+    if (cargo.refrigerated === 'Y' || cargo.refrigerated === 'X') tags.push('Refrigerated');
+    if (cargo.fresh_produce === 'Y' || cargo.fresh_produce === 'X') tags.push('Produce');
+    if (cargo.meat === 'Y' || cargo.meat === 'X') tags.push('Meat');
+    if (cargo.hazmat === 'Y' || cargo.hazmat === 'X') tags.push('Hazmat');
+
+    if (tags.length === 0) return null;
+
+    return (
+      <div className="flex flex-wrap gap-1.5 mt-2">
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            className="px-2 py-0.5 text-[11px] font-medium bg-blue-50 text-blue-700 rounded border border-blue-200"
+          >
+            {tag}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
   return (
-    <main className="min-h-screen bg-slate-50 py-10 px-4 sm:px-8">
+    <main className="min-h-screen bg-slate-100 py-10 px-4 sm:px-8">
       <div className="max-w-6xl mx-auto">
         <header className="mb-8">
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
             Carrier Intelligence Platform
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Real-time entity census, operating authority, and verified insurance filings.
+          <p className="text-sm text-slate-600 mt-1">
+            Real-time entity census, verified insurance, fleet size, and operational filings.
           </p>
         </header>
 
-        {/* Search Bar */}
+        {/* Search Controls */}
         <form onSubmit={handleSearch} className="mb-8 flex flex-col sm:flex-row gap-3">
           <input
             type="text"
-            placeholder="Search by USDOT, MC/FF Docket, or Company Name..."
+            placeholder="Search by USDOT, MC/Docket, or Legal Name..."
             className="flex-1 px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 shadow-sm focus:ring-2 focus:ring-blue-600 focus:outline-none"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -144,24 +193,34 @@ export default function Home() {
         </form>
 
         {/* Results Stream */}
-        <div className="space-y-5">
+        <div className="space-y-6">
           {results.length === 0 && !loading && (
             <div className="bg-white border border-dashed border-slate-300 rounded-xl p-12 text-center text-slate-400">
-              Enter a search parameter to view carrier details and compliance filings.
+              Enter a search parameter to view carrier operational intelligence and filings.
             </div>
           )}
 
           {results.map((carrier) => (
             <div
               key={carrier.usdot_number}
-              className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 hover:shadow-md transition duration-150"
+              className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4 hover:shadow-md transition duration-150"
             >
-              {/* Header Row */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              {/* Header: Name, IDs, Status */}
+              <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 border-b border-slate-100 pb-4">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900">
-                    {carrier.legal_name || 'Legal Name Not Available'}
-                  </h2>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <h2 className="text-xl font-bold text-slate-900">
+                      {carrier.legal_name || 'Legal Name Not Listed'}
+                    </h2>
+                    <span
+                      className={`px-3 py-0.5 text-xs font-bold uppercase tracking-wider rounded-full border ${getBadgeStyle(
+                        carrier.op_auth_status
+                      )}`}
+                    >
+                      {carrier.op_auth_status || 'Unknown Status'}
+                    </span>
+                  </div>
+
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-slate-600 mt-1">
                     <span>
                       <strong className="text-slate-900">USDOT:</strong> {carrier.usdot_number}
@@ -170,30 +229,85 @@ export default function Home() {
                       <strong className="text-slate-900">Docket:</strong> {carrier.docket_number || 'N/A'}
                     </span>
                     <span>
-                      <strong className="text-slate-900">Phone:</strong> {carrier.phone_number || 'None Reported'}
+                      <strong className="text-slate-900">Phone:</strong>{' '}
+                      {carrier.phone_number ? (
+                        <a href={`tel:${carrier.phone_number}`} className="text-blue-600 hover:underline">
+                          {carrier.phone_number}
+                        </a>
+                      ) : (
+                        'None Listed'
+                      )}
                     </span>
+                    {carrier.email_address && (
+                      <span>
+                        <strong className="text-slate-900">Email:</strong>{' '}
+                        <a href={`mailto:${carrier.email_address}`} className="text-blue-600 hover:underline">
+                          {carrier.email_address}
+                        </a>
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`px-3 py-1 text-xs font-bold uppercase tracking-wider rounded-full border ${getBadgeStyle(
-                      carrier.op_auth_status
-                    )}`}
-                  >
-                    {carrier.op_auth_status || 'Unknown Status'}
-                  </span>
+                {/* Fleet Metrics Badges */}
+                <div className="flex items-center gap-2 self-start">
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-center">
+                    <div className="text-[10px] uppercase font-bold text-slate-500">Power Units</div>
+                    <div className="text-base font-extrabold text-slate-800">
+                      {carrier.tot_pwr ?? '—'}
+                    </div>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-center">
+                    <div className="text-[10px] uppercase font-bold text-slate-500">CDL Drivers</div>
+                    <div className="text-base font-extrabold text-slate-800">
+                      {carrier.tot_cdl ?? '—'}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Sub-Info */}
-              <div className="mt-3 text-xs text-slate-500 font-medium">
-                Authority Type: <span className="text-slate-700">{carrier.op_auth_type || 'Standard Property'}</span>
+              {/* Middle Section: Addresses & Cargo Classification */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-600 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
+                <div>
+                  <span className="font-bold text-slate-700 block mb-0.5">Physical Address (PPOB):</span>
+                  <p className="text-slate-900 font-medium">
+                    {formatAddress(
+                      carrier.phy_street,
+                      carrier.phy_city,
+                      carrier.phy_state,
+                      carrier.phy_zip
+                    )}
+                  </p>
+                  {carrier.mailing_street && (
+                    <div className="mt-2 text-slate-500">
+                      <span className="font-semibold text-slate-600">Mailing: </span>
+                      {formatAddress(
+                        carrier.mailing_street,
+                        carrier.mailing_city,
+                        carrier.mailing_state,
+                        carrier.mailing_zip
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <span className="font-bold text-slate-700 block mb-0.5">Operating Scope:</span>
+                  <p className="text-slate-800">
+                    {carrier.op_auth_type || 'Standard Property'}
+                    {carrier.mcs150_date && (
+                      <span className="text-slate-500 block text-[11px] mt-0.5">
+                        Last MCS-150 Filing: {carrier.mcs150_date}
+                      </span>
+                    )}
+                  </p>
+                  {renderCargoTags(carrier.cargo_classifications)}
+                </div>
               </div>
 
-              {/* Insurance Cards Section */}
-              <div className="mt-5">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">
+              {/* Insurance Policies Section */}
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
                   Verified On-File Insurance ({carrier.insurance_policies?.length || 0})
                 </h3>
 
@@ -212,7 +326,10 @@ export default function Home() {
                             {formatCurrency(policy.max_cov_amount)}
                           </span>
                         </div>
-                        <div className="truncate text-slate-800 font-medium" title={policy.insurance_company_name}>
+                        <div
+                          className="truncate text-slate-800 font-medium"
+                          title={policy.insurance_company_name || undefined}
+                        >
                           {policy.insurance_company_name || 'Carrier Filings'}
                         </div>
                         <div className="text-[11px] text-slate-500 flex justify-between">
