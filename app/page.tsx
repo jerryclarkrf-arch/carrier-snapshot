@@ -58,6 +58,8 @@ export default function CarrierSearchPage() {
   const [activeTab, setActiveTab] = useState<Record<string, string>>({});
   const [inspections, setInspections] = useState<Record<string, Inspection[]>>({});
   const [loadingInspections, setLoadingInspections] = useState<Record<string, boolean>>({});
+  const [smsData, setSmsData] = useState<Record<string, any>>({});
+  const [loadingSms, setLoadingSms] = useState<Record<string, boolean>>({});
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -83,7 +85,7 @@ export default function CarrierSearchPage() {
         
         // Initialize default tab to 'General' for all returned carriers
         const initialTabs: Record<string, string> = {};
-        results.forEach(c => {
+        results.forEach((c: Carrier) => {
           initialTabs[c.usdot_number] = 'General';
         });
         setActiveTab(initialTabs);
@@ -96,11 +98,10 @@ export default function CarrierSearchPage() {
   };
 
   const fetchFMCSAInspections = async (dotNumber: string) => {
-    if (inspections[dotNumber]) return; // Skip if already fetched
+    if (inspections[dotNumber]) return;
 
     setLoadingInspections(prev => ({ ...prev, [dotNumber]: true }));
     try {
-      // Direct GET request to the DOT Socrata Open Data Portal
       const response = await fetch(
         `https://data.transportation.gov/resource/876r-jsdb.json?dot_number=${dotNumber}&$limit=50&$order=inspection_date DESC`
       );
@@ -125,10 +126,34 @@ export default function CarrierSearchPage() {
     }
   };
 
+  const fetchFMCSASMS = async (dotNumber: string) => {
+    if (smsData[dotNumber] !== undefined) return;
+
+    setLoadingSms(prev => ({ ...prev, [dotNumber]: true }));
+    try {
+      const response = await fetch(
+        `https://data.transportation.gov/resource/sjpe-nzai.json?dot_number=${dotNumber}`
+      );
+      
+      if (!response.ok) throw new Error('Failed to fetch SMS data');
+      
+      const rawData = await response.json();
+      setSmsData(prev => ({ ...prev, [dotNumber]: rawData[0] || null }));
+    } catch (error) {
+      console.error('Error fetching FMCSA SMS:', error);
+      setSmsData(prev => ({ ...prev, [dotNumber]: null }));
+    } finally {
+      setLoadingSms(prev => ({ ...prev, [dotNumber]: false }));
+    }
+  };
+
   const handleTabChange = (dotNumber: string, tab: string) => {
     setActiveTab(prev => ({ ...prev, [dotNumber]: tab }));
+    
     if (tab === 'Inspections') {
       fetchFMCSAInspections(dotNumber);
+    } else if (tab === 'SMS') {
+      fetchFMCSASMS(dotNumber);
     }
   };
 
@@ -324,12 +349,61 @@ export default function CarrierSearchPage() {
 
                   {/* SMS TAB */}
                   {currentTab === 'SMS' && (
-                    <div className="animate-in fade-in duration-300 py-8 text-center text-slate-500 text-sm border border-dashed border-slate-300 rounded-lg">
-                      <p>SMS Safety Module connection pending DOT App Token validation.</p>
+                    <div className="animate-in fade-in duration-300">
+                      {loadingSms[carrier.usdot_number] ? (
+                        <div className="py-12 flex justify-center items-center text-sm text-blue-600 font-medium space-x-2">
+                           <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                           <span>Querying Carrier Safety Measurement System...</span>
+                        </div>
+                      ) : (
+                        <div>
+                           {!smsData[carrier.usdot_number] ? (
+                             <p className="text-sm italic text-slate-500 py-4">No SMS safety scores found for this carrier in the FMCSA database.</p>
+                           ) : (
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                                  <h3 className="text-xs font-bold tracking-wider text-slate-500 uppercase mb-3">Vehicle & Driver Fitness</h3>
+                                  <div className="space-y-2 text-sm text-slate-700">
+                                    <p className="flex justify-between border-b border-slate-200 pb-1">
+                                      <span>Unsafe Driving Measure:</span> 
+                                      <span className="font-semibold">{smsData[carrier.usdot_number].unsafe_driving_measure || 'N/A'}</span>
+                                    </p>
+                                    <p className="flex justify-between border-b border-slate-200 pb-1">
+                                      <span>HOS Compliance Measure:</span> 
+                                      <span className="font-semibold">{smsData[carrier.usdot_number].hos_compliance_measure || 'N/A'}</span>
+                                    </p>
+                                    <p className="flex justify-between border-b border-slate-200 pb-1">
+                                      <span>Vehicle Maint. Measure:</span> 
+                                      <span className="font-semibold">{smsData[carrier.usdot_number].vehicle_maint_measure || 'N/A'}</span>
+                                    </p>
+                                  </div>
+                               </div>
+                               
+                               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                                  <h3 className="text-xs font-bold tracking-wider text-slate-500 uppercase mb-3">Compliance & Incidents</h3>
+                                  <div className="space-y-2 text-sm text-slate-700">
+                                    <p className="flex justify-between border-b border-slate-200 pb-1">
+                                      <span>Crash Indicator Measure:</span> 
+                                      <span className="font-semibold">{smsData[carrier.usdot_number].crash_indicator_measure || 'N/A'}</span>
+                                    </p>
+                                    <p className="flex justify-between border-b border-slate-200 pb-1">
+                                      <span>Controlled Substance Measure:</span> 
+                                      <span className="font-semibold">{smsData[carrier.usdot_number].controlled_substance_measure || 'N/A'}</span>
+                                    </p>
+                                    <p className="flex justify-between border-b border-slate-200 pb-1">
+                                      <span>Total Inspections:</span> 
+                                      <span className="font-semibold">{smsData[carrier.usdot_number].total_inspections || 'N/A'}</span>
+                                    </p>
+                                  </div>
+                               </div>
+                             </div>
+                           )}
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {/* INSPECTIONS TAB (Live Data Fetch) */}
+                  {/* INSPECTIONS TAB */}
                   {currentTab === 'Inspections' && (
                     <div className="animate-in fade-in duration-300">
                       {isLoadingInspections ? (
@@ -375,6 +449,18 @@ export default function CarrierSearchPage() {
               </div>
             );
           })}
+
+          {searched && !loading && carriers.length === 0 && (
+            <div className="bg-white border border-dashed border-slate-300 rounded-xl p-12 text-center text-sm text-slate-500">
+              No carrier records found matching &ldquo;{searchTerm}&rdquo;. Try another USDOT, MC number, phone, or name.
+            </div>
+          )}
+
+          {!searched && (
+            <div className="border border-dashed border-slate-300 rounded-xl p-12 text-center text-sm text-slate-400">
+              Enter a search parameter to view carrier operational intelligence and filings.
+            </div>
+          )}
         </div>
       </div>
     </main>
