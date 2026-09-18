@@ -83,7 +83,6 @@ export default function CarrierSearchPage() {
         const results = (data as Carrier[]) || [];
         setCarriers(results);
         
-        // Initialize default tab to 'General' for all returned carriers
         const initialTabs: Record<string, string> = {};
         results.forEach((c: Carrier) => {
           initialTabs[c.usdot_number] = 'General';
@@ -103,18 +102,20 @@ export default function CarrierSearchPage() {
     setLoadingInspections(prev => ({ ...prev, [dotNumber]: true }));
     try {
       const response = await fetch(
-        `https://data.transportation.gov/resource/876r-jsdb.json?dot_number=${dotNumber}&$limit=50&$order=inspection_date DESC`
+        `https://data.transportation.gov/resource/fx4q-ay7w.json?dot_number=${dotNumber}&$limit=50`
       );
       
-      if (!response.ok) throw new Error('Failed to fetch DOT data');
+      if (!response.ok) throw new Error('Failed to fetch DOT inspection data');
       
       const rawData = await response.json();
+      console.log('RAW INSPECTION DATA:', rawData);
+
       const mappedData = rawData.map((item: any) => ({
-        report_number: item.report_number || 'Unknown',
-        inspection_date: item.inspection_date ? new Date(item.inspection_date).toLocaleDateString() : 'N/A',
-        report_state: item.report_state || 'N/A',
-        basic_desc: item.basic_desc || 'No Description',
-        violation_group_desc: item.violation_group_desc || 'N/A'
+        report_number: item.report_number || item.inspection_id || 'Unknown',
+        inspection_date: item.inspection_date || item.insp_date || 'N/A',
+        report_state: item.report_state || item.insp_state || 'N/A',
+        basic_desc: item.basic_desc || item.level || 'No Description',
+        violation_group_desc: item.violation_group_desc || item.viol_desc || 'N/A'
       }));
 
       setInspections(prev => ({ ...prev, [dotNumber]: mappedData }));
@@ -132,12 +133,14 @@ export default function CarrierSearchPage() {
     setLoadingSms(prev => ({ ...prev, [dotNumber]: true }));
     try {
       const response = await fetch(
-        `https://data.transportation.gov/resource/sjpe-nzai.json?dot_number=${dotNumber}`
+        `https://data.transportation.gov/resource/sjpe-nzai.json?$where=dot_number='${dotNumber}' OR usdot_number='${dotNumber}'`
       );
       
       if (!response.ok) throw new Error('Failed to fetch SMS data');
       
       const rawData = await response.json();
+      console.log('RAW SMS DATA FOR DOT', dotNumber, ':', rawData);
+      
       setSmsData(prev => ({ ...prev, [dotNumber]: rawData[0] || null }));
     } catch (error) {
       console.error('Error fetching FMCSA SMS:', error);
@@ -223,7 +226,6 @@ export default function CarrierSearchPage() {
                 key={carrier.usdot_number}
                 className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden"
               >
-                {/* Header Row */}
                 <div className="p-6 border-b border-slate-200 bg-white">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
@@ -263,7 +265,6 @@ export default function CarrierSearchPage() {
                   </div>
                 </div>
 
-                {/* Navigation Tabs */}
                 <div className="flex border-b border-slate-200 bg-slate-50 px-4">
                   {['General', 'SMS', 'Inspections'].map(tab => (
                     <button
@@ -280,9 +281,7 @@ export default function CarrierSearchPage() {
                   ))}
                 </div>
 
-                {/* Tab Content Area */}
                 <div className="p-6">
-                  {/* GENERAL TAB */}
                   {currentTab === 'General' && (
                     <div className="animate-in fade-in duration-300 space-y-6">
                       <div className="flex flex-wrap gap-4 text-xs text-slate-600">
@@ -312,7 +311,6 @@ export default function CarrierSearchPage() {
                         </div>
                       </div>
 
-                      {/* Insurance Section */}
                       <div>
                         <h3 className="text-xs font-bold tracking-wider text-slate-500 uppercase mb-2">Verified Insurance ({policies.length})</h3>
                         {policies.length === 0 ? (
@@ -347,7 +345,6 @@ export default function CarrierSearchPage() {
                     </div>
                   )}
 
-                  {/* SMS TAB */}
                   {currentTab === 'SMS' && (
                     <div className="animate-in fade-in duration-300">
                       {loadingSms[carrier.usdot_number] ? (
@@ -403,7 +400,6 @@ export default function CarrierSearchPage() {
                     </div>
                   )}
 
-                  {/* INSPECTIONS TAB */}
                   {currentTab === 'Inspections' && (
                     <div className="animate-in fade-in duration-300">
                       {isLoadingInspections ? (
