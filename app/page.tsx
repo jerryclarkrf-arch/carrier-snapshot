@@ -156,23 +156,13 @@ export default function CarrierSearchPage() {
 
     setLoadingSms(prev => ({ ...prev, [dotNumber]: true }));
     try {
-      const response = await fetch(
-        `https://data.transportation.gov/resource/sjpe-nzai.json?$where=dot_number='${dotNumber}' OR usdot_number='${dotNumber}'`,
-        {
-          method: 'GET',
-          headers: {
-            'X-App-Token': 'OoEPnNHuAHbkGpmXKwtXZRd1M',
-            'Accept': 'application/json'
-          }
-        }
-      );
+      // Call our secure Next.js backend proxy instead of the DOT directly
+      const response = await fetch(`/api/sms?dotNumber=${dotNumber}`);
       
-      if (!response.ok) {
-        throw new Error(`Failed to fetch SMS data. Status: ${response.status}`);
-      }
+      if (!response.ok) throw new Error('Failed to fetch SMS data via local API');
       
       const rawData = await response.json();
-      console.log('RAW SMS DATA FOR DOT', dotNumber, ':', rawData);
+      console.log('PROXY SMS DATA:', rawData);
       
       setSmsData(prev => ({ ...prev, [dotNumber]: rawData[0] || null }));
     } catch (error) {
@@ -181,9 +171,7 @@ export default function CarrierSearchPage() {
     } finally {
       setLoadingSms(prev => ({ ...prev, [dotNumber]: false }));
     }
-  
   };
-
   const handleTabChange = (dotNumber: string, tab: string) => {
     setActiveTab(prev => ({ ...prev, [dotNumber]: tab }));
     
