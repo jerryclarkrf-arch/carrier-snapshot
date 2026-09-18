@@ -54,7 +54,6 @@ export default function CarrierSearchPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
 
-  // Tab & External Data State
   const [activeTab, setActiveTab] = useState<Record<string, string>>({});
   const [inspections, setInspections] = useState<Record<string, Inspection[]>>({});
   const [loadingInspections, setLoadingInspections] = useState<Record<string, boolean>>({});
@@ -102,21 +101,46 @@ export default function CarrierSearchPage() {
     setLoadingInspections(prev => ({ ...prev, [dotNumber]: true }));
     try {
       const response = await fetch(
-        `https://data.transportation.gov/resource/fx4q-ay7w.json?dot_number=${dotNumber}&$limit=50`
+        `https://data.transportation.gov/resource/fx4q-ay7w.json?dot_number=${dotNumber}&$limit=50&$order=insp_date DESC`
       );
       
       if (!response.ok) throw new Error('Failed to fetch DOT inspection data');
       
       const rawData = await response.json();
-      console.log('RAW INSPECTION DATA:', rawData);
 
-      const mappedData = rawData.map((item: any) => ({
-        report_number: item.report_number || item.inspection_id || 'Unknown',
-        inspection_date: item.inspection_date || item.insp_date || 'N/A',
-        report_state: item.report_state || item.insp_state || 'N/A',
-        basic_desc: item.basic_desc || item.level || 'No Description',
-        violation_group_desc: item.violation_group_desc || item.viol_desc || 'N/A'
-      }));
+      const mappedData = rawData.map((item: any) => {
+        const rawDate = item.insp_date || '';
+        const formattedDate = rawDate.length === 8 
+          ? `${rawDate.substring(4,6)}/${rawDate.substring(6,8)}/${rawDate.substring(0,4)}`
+          : 'N/A';
+
+        const levelMap: Record<string, string> = {
+          '1': 'Level 1 - Full',
+          '2': 'Level 2 - Walk-Around',
+          '3': 'Level 3 - Driver Only',
+          '4': 'Level 4 - Special',
+          '5': 'Level 5 - Vehicle Only',
+          '6': 'Level 6 - Radioactive'
+        };
+        const category = levelMap[item.insp_level_id] || `Level ${item.insp_level_id || 'Unknown'}`;
+        
+        const violTotal = parseInt(item.viol_total || '0', 10);
+        const oosTotal = parseInt(item.oos_total || '0', 10);
+        let violDetail = 'No Violations';
+        
+        if (violTotal > 0) {
+           violDetail = `${violTotal} Violation${violTotal > 1 ? 's' : ''}`;
+           if (oosTotal > 0) violDetail += ` (${oosTotal} Out-of-Service)`;
+        }
+
+        return {
+          report_number: item.report_number || item.inspection_id || 'Unknown',
+          inspection_date: formattedDate,
+          report_state: item.report_state || 'N/A',
+          basic_desc: category,
+          violation_group_desc: violDetail
+        };
+      });
 
       setInspections(prev => ({ ...prev, [dotNumber]: mappedData }));
     } catch (error) {
@@ -130,17 +154,17 @@ export default function CarrierSearchPage() {
   const fetchFMCSASMS = async (dotNumber: string) => {
     if (smsData[dotNumber] !== undefined) return;
 
+    const appToken = 'OoEPnNHuAHbkGpmXKwtXZRd1M'; 
+
     setLoadingSms(prev => ({ ...prev, [dotNumber]: true }));
     try {
       const response = await fetch(
-        `https://data.transportation.gov/resource/sjpe-nzai.json?$where=dot_number='${dotNumber}' OR usdot_number='${dotNumber}'`
+        `https://data.transportation.gov/resource/sjpe-nzai.json?$where=dot_number='${dotNumber}' OR usdot_number='${dotNumber}'&$$app_token=${appToken}`
       );
       
       if (!response.ok) throw new Error('Failed to fetch SMS data');
       
       const rawData = await response.json();
-      console.log('RAW SMS DATA FOR DOT', dotNumber, ':', rawData);
-      
       setSmsData(prev => ({ ...prev, [dotNumber]: rawData[0] || null }));
     } catch (error) {
       console.error('Error fetching FMCSA SMS:', error);
