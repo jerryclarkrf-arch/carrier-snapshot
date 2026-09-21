@@ -49,7 +49,10 @@ interface Inspection {
 
 export default function CarrierSearchPage() {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('All Authorities');
+  const [filterStatus, setFilterStatus] = useState('Active Only');
+  const [filterState, setFilterState] = useState('');
+  const [activeSince, setActiveSince] = useState<number | null>(null);
+  
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -60,9 +63,20 @@ export default function CarrierSearchPage() {
   const [smsData, setSmsData] = useState<Record<string, any>>({});
   const [loadingSms, setLoadingSms] = useState<Record<string, boolean>>({});
 
+  const US_STATES = [
+    'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 
+    'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 
+    'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 
+    'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 
+    'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
+  ];
+
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!searchTerm.trim()) return;
+    if (!searchTerm.trim() && !filterState && activeSince === null) {
+      alert("Please enter a search parameter or select an advanced filter to begin.");
+      return;
+    }
 
     setLoading(true);
     setSearched(true);
@@ -73,6 +87,8 @@ export default function CarrierSearchPage() {
       const { data, error } = await supabase.rpc('search_carriers', {
         query_text: searchTerm.trim(),
         only_active: filterStatus === 'Active Only',
+        filter_state: filterState || null,
+        active_since_days: activeSince,
         row_limit: 25,
       });
 
@@ -107,7 +123,6 @@ export default function CarrierSearchPage() {
       if (!response.ok) throw new Error('Failed to fetch DOT inspection data');
       
       const rawData = await response.json();
-
       const mappedData = rawData.map((item: any) => {
         const rawDate = item.insp_date || '';
         const formattedDate = rawDate.length === 8 
@@ -115,12 +130,9 @@ export default function CarrierSearchPage() {
           : 'N/A';
 
         const levelMap: Record<string, string> = {
-          '1': 'Level 1 - Full',
-          '2': 'Level 2 - Walk-Around',
-          '3': 'Level 3 - Driver Only',
-          '4': 'Level 4 - Special',
-          '5': 'Level 5 - Vehicle Only',
-          '6': 'Level 6 - Radioactive'
+          '1': 'Level 1 - Full', '2': 'Level 2 - Walk-Around',
+          '3': 'Level 3 - Driver Only', '4': 'Level 4 - Special',
+          '5': 'Level 5 - Vehicle Only', '6': 'Level 6 - Radioactive'
         };
         const category = levelMap[item.insp_level_id] || `Level ${item.insp_level_id || 'Unknown'}`;
         
@@ -144,7 +156,6 @@ export default function CarrierSearchPage() {
 
       setInspections(prev => ({ ...prev, [dotNumber]: mappedData }));
     } catch (error) {
-      console.error('Error fetching FMCSA inspections:', error);
       setInspections(prev => ({ ...prev, [dotNumber]: [] }));
     } finally {
       setLoadingInspections(prev => ({ ...prev, [dotNumber]: false }));
@@ -156,40 +167,33 @@ export default function CarrierSearchPage() {
 
     setLoadingSms(prev => ({ ...prev, [dotNumber]: true }));
     try {
-      // Call our secure Next.js backend proxy instead of the DOT directly
       const response = await fetch(`/api/sms?dotNumber=${dotNumber}`);
       
-      if (!response.ok) throw new Error('Failed to fetch SMS data via local API');
+      if (!response.ok) {
+        const errPayload = await response.json().catch(() => ({}));
+        throw new Error(`Backend rejected request: ${errPayload.error || response.status}`);
+      }
       
       const rawData = await response.json();
-      console.log('PROXY SMS DATA:', rawData);
-      
       setSmsData(prev => ({ ...prev, [dotNumber]: rawData[0] || null }));
     } catch (error) {
-      console.error('Error fetching FMCSA SMS:', error);
       setSmsData(prev => ({ ...prev, [dotNumber]: null }));
     } finally {
       setLoadingSms(prev => ({ ...prev, [dotNumber]: false }));
     }
   };
+
   const handleTabChange = (dotNumber: string, tab: string) => {
     setActiveTab(prev => ({ ...prev, [dotNumber]: tab }));
-    
-    if (tab === 'Inspections') {
-      fetchFMCSAInspections(dotNumber);
-    } else if (tab === 'SMS') {
-      fetchFMCSASMS(dotNumber);
-    }
+    if (tab === 'Inspections') fetchFMCSAInspections(dotNumber);
+    else if (tab === 'SMS') fetchFMCSASMS(dotNumber);
   };
 
   const formatCargo = (cargo: Record<string, string> | null) => {
     if (!cargo) return [];
     const labels: Record<string, string> = {
-      general_freight: 'General Freight',
-      fresh_produce: 'Fresh Produce',
-      meat: 'Meat',
-      refrigerated: 'Refrigerated Food',
-      hazmat: 'Hazmat',
+      general_freight: 'General Freight', fresh_produce: 'Fresh Produce',
+      meat: 'Meat', refrigerated: 'Refrigerated Food', hazmat: 'Hazmat'
     };
     return Object.entries(cargo)
       .filter(([_, val]) => val === 'Y' || val === 'X')
@@ -208,31 +212,59 @@ export default function CarrierSearchPage() {
           </p>
         </div>
 
-        <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by USDOT, MC#, Company Name, or Phone..."
-            className="flex-1 bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
-          />
+        <form onSubmit={handleSearch} className="flex flex-col gap-3">
+          {/* Main Search Row */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by USDOT, MC#, Company Name, or Phone (Optional for Advanced Search)"
+              className="flex-1 bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-8 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Searching...' : 'Search'}
+            </button>
+          </div>
 
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
-          >
-            <option value="All Authorities">All Authorities</option>
-            <option value="Active Only">Active Only</option>
-          </select>
+          {/* Advanced Filters Row */}
+          <div className="flex flex-col sm:flex-row gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 w-full sm:w-auto"
+            >
+              <option value="Active Only">Active Only</option>
+              <option value="All Authorities">All Authorities</option>
+            </select>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
-          >
-            {loading ? 'Searching...' : 'Search'}
-          </button>
+            <select
+              value={filterState}
+              onChange={(e) => setFilterState(e.target.value)}
+              className="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 w-full sm:w-auto"
+            >
+              <option value="">All States</option>
+              {US_STATES.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+
+            <select
+              value={activeSince === null ? '' : activeSince}
+              onChange={(e) => setActiveSince(e.target.value ? Number(e.target.value) : null)}
+              className="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 w-full sm:w-auto flex-1"
+            >
+              <option value="">Registration Date (Any Time)</option>
+              <option value="7">Newly Active (Last 7 Days)</option>
+              <option value="30">Newly Active (Last 1 Month)</option>
+              <option value="90">Newly Active (Last 3 Months)</option>
+              <option value="180">Newly Active (Last 6 Months)</option>
+            </select>
+          </div>
         </form>
 
         <div className="space-y-6">
@@ -287,12 +319,12 @@ export default function CarrierSearchPage() {
                   </div>
                 </div>
 
-                <div className="flex border-b border-slate-200 bg-slate-50 px-4">
+                <div className="flex border-b border-slate-200 bg-slate-50 px-4 overflow-x-auto">
                   {['General', 'SMS', 'Inspections'].map(tab => (
                     <button
                       key={tab}
                       onClick={() => handleTabChange(carrier.usdot_number, tab)}
-                      className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                      className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                         currentTab === tab 
                           ? 'border-blue-600 text-blue-700 bg-white' 
                           : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
@@ -470,13 +502,7 @@ export default function CarrierSearchPage() {
 
           {searched && !loading && carriers.length === 0 && (
             <div className="bg-white border border-dashed border-slate-300 rounded-xl p-12 text-center text-sm text-slate-500">
-              No carrier records found matching &ldquo;{searchTerm}&rdquo;. Try another USDOT, MC number, phone, or name.
-            </div>
-          )}
-
-          {!searched && (
-            <div className="border border-dashed border-slate-300 rounded-xl p-12 text-center text-sm text-slate-400">
-              Enter a search parameter to view carrier operational intelligence and filings.
+              No active carrier records found matching your exact advanced filters. Try broadening the state or date range.
             </div>
           )}
         </div>

@@ -13,10 +13,9 @@ export async function GET(request: Request) {
 
   if (!keyId || !keySecret) {
     console.error('Missing DOT API credentials in environment variables.');
-    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    return NextResponse.json({ error: 'Missing API Credentials on Server' }, { status: 500 });
   }
 
-  // Socrata requires Basic Auth (Base64 encoded ID:Secret) for private datasets
   const authHeader = `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`;
 
   try {
@@ -29,19 +28,24 @@ export async function GET(request: Request) {
           'X-App-Token': 'OoEPnNHuAHbkGpmXKwtXZRd1M',
           'Accept': 'application/json'
         },
-        // Prevent Next.js from aggressively caching this live data
         cache: 'no-store' 
       }
     );
 
+    // If the DOT rejects the request, capture their exact reason
     if (!response.ok) {
-      throw new Error(`DOT API responded with status: ${response.status}`);
+      const errorText = await response.text();
+      console.error(`DOT API Error ${response.status}:`, errorText);
+      return NextResponse.json(
+        { error: `FMCSA Server Status ${response.status} - ${errorText}` }, 
+        { status: response.status }
+      );
     }
 
     const data = await response.json();
     return NextResponse.json(data);
-  } catch (error) {
-    console.error('Backend SMS Fetch Error:', error);
-    return NextResponse.json({ error: 'Failed to fetch SMS data from FMCSA' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Backend SMS Fetch Error:', error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
