@@ -1,20 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import Link from 'next/link';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-interface InsurancePolicy {
-  policy_no: string;
-  insurance_company_name: string | null;
-  ins_type_code: string | null;
-  max_cov_amount: number | null;
-  effective_date: string | null;
-}
 
 interface Carrier {
   usdot_number: string;
@@ -36,8 +23,6 @@ interface Carrier {
   mailing_state: string | null;
   mailing_zip: string | null;
   mcs150_date: string | null;
-  cargo_classifications: Record<string, string> | null;
-  insurance_policies: InsurancePolicy[];
 }
 
 interface Inspection {
@@ -67,21 +52,66 @@ export default function SimpleSearchPage() {
     setLoading(true); setSearched(true); setCarriers([]); setActiveTab({});
 
     try {
-      const { data, error } = await supabase.rpc('search_carriers', {
-        query_text: searchTerm.trim(),
-        only_active: false,
-        row_limit: 25,
-      });
+      const cleanTerm = searchTerm.trim().toUpperCase();
+      const isMC = cleanTerm.startsWith('MC') || (cleanTerm.length > 5 && cleanTerm.length < 9 && !isNaN(Number(cleanTerm)));
+      const numericTerm = cleanTerm.replace(/\D/g, '');
+      const appToken = 'OoEPnNHuAHbkGpmXKwtXZRd1M';
 
-      if (!error && data) {
-        const results = data as Carrier[];
-        setCarriers(results);
-        const initialTabs: Record<string, string> = {};
-        results.forEach((c: Carrier) => { initialTabs[c.usdot_number] = 'General'; });
-        setActiveTab(initialTabs);
+      let usdotToFetch = numericTerm;
+
+      // 1. If searching by MC, cross-reference the Motus History dataset to find the USDOT
+      if (isMC) {
+         const authRes = await fetch(`https://data.transportation.gov/resource/inys-ebih.json?docket_number=MC${numericTerm}&$$app_token=${appToken}&$limit=1`);
+         const authData = await authRes.json();
+         if (!authData || authData.length === 0) {
+            setLoading(false); return;
+         }
+         usdotToFetch = authData[0].usdot_number;
       }
-    } catch (err) { console.error(err); } 
-    finally { setLoading(false); }
+
+      // 2. Fetch Core Demographics from the Company Census File
+      const censusRes = await fetch(`https://data.transportation.gov/resource/az4n-8mr2.json?usdot_number=${usdotToFetch}&$$app_token=${appToken}&$limit=1`);
+      const censusData = await censusRes.json();
+
+      if (censusData && censusData.length > 0) {
+         const carrierRaw = censusData[0];
+         
+         // 3. Fetch Operational Authority Status
+         const authFinalRes = await fetch(`https://data.transportation.gov/resource/inys-ebih.json?usdot_number=${usdotToFetch}&$$app_token=${appToken}&$limit=1`);
+         const authFinalData = await authFinalRes.json();
+         const auth = authFinalData.length > 0 ? authFinalData[0] : {};
+
+         // 4. Transform into UI Schema
+         const carrier: Carrier = {
+            usdot_number: usdotToFetch,
+            docket_number: auth.docket_number || null,
+            legal_name: carrierRaw.legal_name || 'UNKNOWN',
+            dot_status: carrierRaw.status_code === 'A' ? 'Active' : 'Inactive',
+            op_auth_status: auth.op_auth_status || 'None',
+            op_auth_type: auth.op_auth_type || 'N/A',
+            phone_number: carrierRaw.telephone || 'N/A',
+            email_address: carrierRaw.email_address || 'N/A',
+            tot_pwr: parseInt(carrierRaw.nbr_power_unit) || 0,
+            tot_cdl: parseInt(carrierRaw.driver_total) || 0,
+            phy_street: carrierRaw.phy_street || null,
+            phy_city: carrierRaw.phy_city || null,
+            phy_state: carrierRaw.phy_state || null,
+            phy_zip: carrierRaw.phy_zip_code || null,
+            mailing_street: carrierRaw.mailing_street || null,
+            mailing_city: carrierRaw.mailing_city || null,
+            mailing_state: carrierRaw.mailing_state || null,
+            mailing_zip: carrierRaw.mailing_zip_code || null,
+            mcs150_date: carrierRaw.mcs150_date || null
+         };
+
+         setCarriers([carrier]);
+         setActiveTab({ [usdotToFetch]: 'General' });
+      }
+    } catch (err) { 
+      console.error(err); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   const fetchFMCSAInspections = async (dotNumber: string) => {
@@ -134,12 +164,6 @@ export default function SimpleSearchPage() {
     else if (tab === 'SMS') fetchFMCSASMS(dotNumber);
   };
 
-  const formatCargo = (cargo: Record<string, string> | null) => {
-    if (!cargo) return [];
-    const labels: Record<string, string> = { general_freight: 'General Freight', fresh_produce: 'Fresh Produce', meat: 'Meat', refrigerated: 'Refrigerated Food', hazmat: 'Hazmat' };
-    return Object.entries(cargo).filter(([_, val]) => val === 'Y' || val === 'X').map(([key]) => labels[key] || key);
-  };
-
   return (
     <main className="min-h-screen bg-[#f8fafc] text-slate-900">
       <div className="bg-[#0f172a] text-white px-6 py-4 flex justify-between items-center shadow-md">
@@ -155,7 +179,7 @@ export default function SimpleSearchPage() {
       <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8 space-y-8">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-extrabold text-[#0f172a] tracking-tight">Direct Lookup</h1>
-          <p className="text-sm text-slate-500 mt-2">Find a specific carrier by USDOT, MC#, or Name.</p>
+          <p className="text-sm text-slate-500 mt-2">Find active, inactive, and pending carriers instantly via live Socrata query.</p>
         </div>
 
         <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
@@ -163,19 +187,17 @@ export default function SimpleSearchPage() {
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by USDOT, MC#, Company Name, or Phone..."
+            placeholder="Search by USDOT or MC#..."
             className="flex-1 bg-white border border-slate-300 rounded-lg px-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
           />
           <button type="submit" disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-8 py-3 rounded-lg shadow-sm transition-colors disabled:opacity-50">
-            {loading ? 'Searching...' : 'Search'}
+            {loading ? 'Querying Socrata...' : 'Search'}
           </button>
         </form>
 
         <div className="space-y-6">
           {carriers.map((carrier) => {
             const currentTab = activeTab[carrier.usdot_number] || 'General';
-            const cargoBadges = formatCargo(carrier.cargo_classifications);
-            const policies = carrier.insurance_policies || [];
             const carrierInspections = inspections[carrier.usdot_number];
             const isLoadingInspections = loadingInspections[carrier.usdot_number];
 
@@ -247,45 +269,7 @@ export default function SimpleSearchPage() {
                         <div className="space-y-1 text-slate-600">
                           <p><strong className="text-slate-800">Operating Scope:</strong> {carrier.op_auth_type || 'N/A'}</p>
                           <p><strong className="text-slate-800">Last MCS-150:</strong> {carrier.mcs150_date || 'N/A'}</p>
-                          {cargoBadges.length > 0 && (
-                            <div className="flex flex-wrap gap-1 pt-2">
-                              {cargoBadges.map((tag) => (
-                                <span key={tag} className="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded text-[11px] font-medium">{tag}</span>
-                              ))}
-                            </div>
-                          )}
                         </div>
-                      </div>
-                      <div>
-                        <h3 className="text-xs font-bold tracking-wider text-slate-500 uppercase mb-2">Verified Insurance ({policies.length})</h3>
-                        {policies.length === 0 ? (
-                          <p className="text-xs italic text-slate-500">No active insurance certificates on file.</p>
-                        ) : (
-                          <div className="overflow-x-auto border border-slate-200 rounded-lg">
-                            <table className="min-w-full divide-y divide-slate-200 text-xs">
-                              <thead className="bg-slate-50 text-slate-600 font-semibold">
-                                <tr>
-                                  <th className="py-2 px-3 text-left">Policy #</th>
-                                  <th className="py-2 px-3 text-left">Company</th>
-                                  <th className="py-2 px-3 text-left">Type</th>
-                                  <th className="py-2 px-3 text-left">Coverage</th>
-                                  <th className="py-2 px-3 text-left">Effective</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 bg-white">
-                                {policies.map((p, idx) => (
-                                  <tr key={idx} className="hover:bg-slate-50">
-                                    <td className="py-2 px-3 font-mono font-medium">{p.policy_no}</td>
-                                    <td className="py-2 px-3">{p.insurance_company_name || 'Unknown'}</td>
-                                    <td className="py-2 px-3">{p.ins_type_code || 'N/A'}</td>
-                                    <td className="py-2 px-3 text-emerald-700 font-medium">{p.max_cov_amount ? `$${Number(p.max_cov_amount).toLocaleString()}` : 'N/A'}</td>
-                                    <td className="py-2 px-3">{p.effective_date || 'N/A'}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
                       </div>
                     </div>
                   )}
@@ -393,13 +377,7 @@ export default function SimpleSearchPage() {
 
           {searched && !loading && carriers.length === 0 && (
             <div className="bg-white border border-dashed border-slate-300 rounded-xl p-12 text-center text-sm text-slate-500">
-              No carrier records found matching &ldquo;{searchTerm}&rdquo;. Try another USDOT, MC number, phone, or name.
-            </div>
-          )}
-
-          {!searched && (
-            <div className="border border-dashed border-slate-300 rounded-xl p-12 text-center text-sm text-slate-400">
-              Enter a search parameter to view carrier operational intelligence and filings.
+              No carrier records found matching &ldquo;{searchTerm}&rdquo;. Try another USDOT or MC number.
             </div>
           )}
         </div>
