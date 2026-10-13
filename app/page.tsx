@@ -1,493 +1,326 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+
+const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
 
 interface Carrier {
-  usdot_number: string;
-  docket_number: string | null;
-  legal_name: string | null;
-  owner_name: string | null;
-  dot_status: string | null;
-  op_auth_status: string | null;
-  op_auth_type: string | null;
-  phone_number: string | null;
-  email_address: string | null;
-  tot_pwr: number | null;
-  tot_cdl: number | null;
-  phy_street: string | null;
-  phy_city: string | null;
-  phy_state: string | null;
-  phy_zip: string | null;
-  mailing_street: string | null;
-  mailing_city: string | null;
-  mailing_state: string | null;
-  mailing_zip: string | null;
-  mcs150_date: string | null;
+  usdot: string; docketDigits: string; docket: string | null; legalName: string | null;
+  dotStatus: string; authStatus: string; authType: string | null;
+  phone: string | null; email: string | null;
+  powerUnits: number | null; drivers: number | null;
+  phy: { street?: string; city?: string; state?: string; zip?: string };
+  mail: { street?: string; city?: string; state?: string; zip?: string };
+  cargo: Record<string, boolean>;
+  addDate: string | null; mcs150: string | null;
 }
 
-interface Inspection {
-  report_number: string;
-  inspection_date: string;
-  report_state: string;
-  basic_desc: string | null;
-  violation_group_desc: string | null;
-}
+interface InsPolicy { form: string; type: string; carrier: string; policy: string; received: string; coverage: string; effective: string; status: string; }
+interface Insp { date: string; report: string; state: string; level: string; summary: string; }
 
-export default function SimpleSearchPage() {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [carriers, setCarriers] = useState<Carrier[]>([]);
+const badge = (s: string) =>
+  s === 'Active' ? 'bg-emerald-100 text-emerald-800' :
+  s === 'Pending' ? 'bg-amber-100 text-amber-800' :
+  s === 'Inactive' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700';
+
+export default function Home() {
+  const [q, setQ] = useState('');
+  const [stateF, setStateF] = useState('');
+  const [statusF, setStatusF] = useState('all');
+  const [addedF, setAddedF] = useState('');
+  const [results, setResults] = useState<Carrier[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [exhausted, setExhausted] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<Record<string, string>>({});
-  const [inspections, setInspections] = useState<Record<string, Inspection[]>>({});
-  const [loadingInspections, setLoadingInspections] = useState<Record<string, boolean>>({});
-  const [smsData, setSmsData] = useState<Record<string, any>>({});
-  const [loadingSms, setLoadingSms] = useState<Record<string, boolean>>({});
-  
-  const [insuranceData, setInsuranceData] = useState<Record<string, any>>({});
-  const [loadingInsurance, setLoadingInsurance] = useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [tab, setTab] = useState<Record<string, 'insurance' | 'inspections'>>({});
+  const [ins, setIns] = useState<Record<string, { loading: boolean; data: { owner: string; policies: InsPolicy[] } | null }>>({});
+  const [insp, setInsp] = useState<Record<string, { loading: boolean; data: Insp[] | null }>>({});
 
-  const handleSearch = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!searchTerm.trim()) return;
-
-    setLoading(true); setSearched(true); setCarriers([]); setActiveTab({});
-
-    try {
-      const cleanTerm = searchTerm.trim().toUpperCase();
-      const numericTerm = cleanTerm.replace(/\D/g, '');
-      const appToken = 'OoEPnNHuAHbkGpmXKwtXZRd1M';
-
-      // Universal Socrata search to catch overlapping records (DOT, MC, or Company Name)
-      const queryParam = numericTerm.length > 0 ? numericTerm : encodeURIComponent(cleanTerm);
-      const censusRes = await fetch(`https://data.transportation.gov/resource/az4n-8mr2.json?$q=${queryParam}&$$app_token=${appToken}&$limit=15`);
-      
-      if (!censusRes.ok) throw new Error('Failed to query Socrata Census');
-      const censusData = await censusRes.json();
-
-      const usdotsToFetch = new Set<string>();
-
-      censusData.forEach((c: any) => {
-        const dot = c.dot_number || c.usdot_number || '';
-        if (numericTerm) {
-          // Strict check to ensure the numeric input explicitly matches the DOT or MC column, ignoring random phone number hits
-          const mc = c.mc_mx_ff_number || '';
-          const mcDigits = mc.replace(/\D/g, '');
-          if (dot === numericTerm || mc.includes(numericTerm) || mcDigits === numericTerm) {
-            usdotsToFetch.add(dot);
-          }
-        } else {
-          // For fuzzy text searches (names), collect all returned DOTs
-          usdotsToFetch.add(dot);
-        }
-      });
-
-      const uniqueDots = Array.from(usdotsToFetch).filter(Boolean);
-
-      if (uniqueDots.length > 0) {
-         const carrierResults: Carrier[] = [];
-         const newTabs: Record<string, string> = {};
-
-         // Process all valid entities in parallel
-         await Promise.all(uniqueDots.map(async (dot) => {
-           const cRes = await fetch(`https://data.transportation.gov/resource/az4n-8mr2.json?dot_number=${dot}&$$app_token=${appToken}&$limit=1`);
-           const cData = await cRes.json();
-           const carrierRaw = cData.length > 0 ? cData[0] : null;
-
-           const mRes = await fetch(`https://data.transportation.gov/resource/inys-ebih.json?usdot_number=${dot}&$$app_token=${appToken}&$limit=1`);
-           const mData = await mRes.json();
-           const auth = mData.length > 0 ? mData[0] : null;
-
-           if (!carrierRaw && !auth) return;
-
-           const raw = carrierRaw || {};
-           const aut = auth || {};
-
-           let mcNumber = aut.docket_number || raw.mc_mx_ff_number || null;
-           if (mcNumber && !mcNumber.startsWith('MC') && !mcNumber.startsWith('FF') && !mcNumber.startsWith('MX')) {
-             mcNumber = `MC${mcNumber}`;
-           }
-
-           const carrier: Carrier = {
-              usdot_number: dot,
-              docket_number: mcNumber,
-              legal_name: raw.legal_name || aut.legal_name || 'UNKNOWN',
-              owner_name: 'Searching L&I...',
-              dot_status: raw.status_code === 'A' ? 'Active' : (raw.status_code || 'Inactive'),
-              op_auth_status: aut.op_auth_status || 'Pending / New',
-              op_auth_type: aut.op_auth_type || 'N/A',
-              phone_number: raw.telephone || raw.phone || raw.contact_phone || 'N/A',
-              email_address: raw.email_address || 'N/A',
-              tot_pwr: parseInt(raw.nbr_power_unit || raw.power_units || raw.total_power_units || '0') || 0,
-              tot_cdl: parseInt(raw.driver_total || raw.drivers || raw.total_drivers || '0') || 0,
-              mcs150_date: raw.mcs150_date || raw.add_date || 'N/A',
-              phy_street: raw.phy_street || null,
-              phy_city: raw.phy_city || null,
-              phy_state: raw.phy_state || null,
-              phy_zip: raw.phy_zip_code || null,
-              mailing_street: raw.mailing_street || null,
-              mailing_city: raw.mailing_city || null,
-              mailing_state: raw.mailing_state || null,
-              mailing_zip: raw.mailing_zip_code || null,
-           };
-
-           carrierResults.push(carrier);
-           newTabs[dot] = 'General';
-         }));
-
-         // Sort so Active records appear first
-         carrierResults.sort((a, b) => (a.dot_status === 'Active' ? -1 : 1));
-         setCarriers(carrierResults);
-         setActiveTab(newTabs);
-
-         // Fire the background L&I scrape AFTER the UI is rendered
-         uniqueDots.forEach(dot => {
-           setLoadingInsurance(prev => ({ ...prev, [dot]: true }));
-           fetch(`/api/insurance?dotNumber=${dot}`)
-              .then(res => res.json())
-              .then(data => {
-                 setCarriers(prev => prev.map(c => 
-                   c.usdot_number === dot ? { ...c, owner_name: data.owner && data.owner !== 'Not Listed' ? data.owner : 'Not Listed' } : c
-                 ));
-                 setInsuranceData(prev => ({ ...prev, [dot]: data.policies || [] }));
-              })
-              .catch(() => {
-                 setCarriers(prev => prev.map(c => c.usdot_number === dot ? { ...c, owner_name: 'Not Listed' } : c));
-                 setInsuranceData(prev => ({ ...prev, [dot]: [] }));
-              })
-              .finally(() => setLoadingInsurance(prev => ({ ...prev, [dot]: false })));
-         });
-      }
-    } catch (err) { 
-      console.error(err); 
-    } finally { 
-      setLoading(false); 
+  async function runSearch(append: boolean) {
+    if (!q.trim() && !stateF && statusF === 'all' && !addedF) {
+      alert('Enter a search term (USDOT, MC, phone, or name) — or pick a filter like State or New Authorities.');
+      return;
     }
-  };
-
-  const fetchFMCSAInspections = async (dotNumber: string) => {
-    if (inspections[dotNumber]) return;
-    setLoadingInspections(prev => ({ ...prev, [dotNumber]: true }));
+    setLoading(true);
+    setSearched(true);
+    const params = new URLSearchParams();
+    if (q.trim()) params.set('q', q.trim());
+    if (stateF) params.set('state', stateF);
+    if (statusF !== 'all') params.set('status', statusF);
+    if (addedF) params.set('added', addedF);
+    const off = append ? offset : 0;
+    params.set('limit', '25');
+    params.set('offset', String(off));
     try {
-      const response = await fetch(`https://data.transportation.gov/resource/fx4q-ay7w.json?dot_number=${dotNumber}&$limit=50&$order=insp_date DESC`);
-      if (!response.ok) throw new Error('Failed to fetch DOT inspection data');
-      const rawData = await response.json();
-      const mappedData = rawData.map((item: any) => {
-        const rawDate = item.insp_date || '';
-        const formattedDate = rawDate.length === 8 ? `${rawDate.substring(4,6)}/${rawDate.substring(6,8)}/${rawDate.substring(0,4)}` : 'N/A';
-        const violTotal = parseInt(item.viol_total || '0', 10);
-        const oosTotal = parseInt(item.oos_total || '0', 10);
-        let violDetail = 'No Violations';
-        if (violTotal > 0) violDetail = `${violTotal} Violation${violTotal > 1 ? 's' : ''}${oosTotal > 0 ? ` (${oosTotal} Out-of-Service)` : ''}`;
-        return {
-          report_number: item.report_number || item.inspection_id || 'Unknown',
-          inspection_date: formattedDate,
-          report_state: item.report_state || 'N/A',
-          basic_desc: `Level ${item.insp_level_id || 'Unknown'}`,
-          violation_group_desc: violDetail
-        };
-      });
-      setInspections(prev => ({ ...prev, [dotNumber]: mappedData }));
-    } catch (error) { setInspections(prev => ({ ...prev, [dotNumber]: [] })); } 
-    finally { setLoadingInspections(prev => ({ ...prev, [dotNumber]: false })); }
-  };
+      const res = await fetch('/api/search?' + params.toString());
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Search failed');
+      const rows: Carrier[] = json.results || [];
+      setResults((prev) => (append ? [...prev, ...rows] : rows));
+      setOffset(off + rows.length);
+      setExhausted(rows.length < 25);
+      if (!append) { setExpanded(null); setTab({}); }
+    } catch (e: any) {
+      alert('Search error: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const fetchFMCSASMS = async (dotNumber: string) => {
-    if (smsData[dotNumber] !== undefined) return;
-    setLoadingSms(prev => ({ ...prev, [dotNumber]: true }));
+  async function loadInsurance(usdot: string) {
+    setIns((p) => ({ ...p, [usdot]: { loading: true, data: null } }));
     try {
-      const response = await fetch(`/api/sms?dotNumber=${dotNumber}`);
-      if (!response.ok) throw new Error('Backend rejected request');
-      const rawData = await response.json();
-      setSmsData(prev => ({ ...prev, [dotNumber]: rawData[0] || null }));
-    } catch (error) { setSmsData(prev => ({ ...prev, [dotNumber]: null })); } 
-    finally { setLoadingSms(prev => ({ ...prev, [dotNumber]: false })); }
-  };
+      const r = await fetch('/api/insurance?dotNumber=' + usdot);
+      const j = await r.json();
+      setIns((p) => ({ ...p, [usdot]: { loading: false, data: j.error ? null : j } }));
+    } catch {
+      setIns((p) => ({ ...p, [usdot]: { loading: false, data: null } }));
+    }
+  }
 
-  const handleTabChange = (dotNumber: string, tab: string) => {
-    setActiveTab(prev => ({ ...prev, [dotNumber]: tab }));
-    if (tab === 'Inspections') fetchFMCSAInspections(dotNumber);
-    else if (tab === 'SMS') fetchFMCSASMS(dotNumber);
-  };
+  async function loadInspections(usdot: string) {
+    if (insp[usdot]) return;
+    setInsp((p) => ({ ...p, [usdot]: { loading: true, data: null } }));
+    try {
+      const r = await fetch('/api/inspections?dot=' + usdot);
+      const j = await r.json();
+      setInsp((p) => ({ ...p, [usdot]: { loading: false, data: j.inspections || [] } }));
+    } catch {
+      setInsp((p) => ({ ...p, [usdot]: { loading: false, data: [] } }));
+    }
+  }
+
+  function toggleExpand(usdot: string) {
+    const next = expanded === usdot ? null : usdot;
+    setExpanded(next);
+    if (next) {
+      if (!ins[next]) loadInsurance(next);
+      if (!tab[next]) setTab((p) => ({ ...p, [next]: 'insurance' }));
+    }
+  }
+
+  function switchTab(usdot: string, t: 'insurance' | 'inspections') {
+    setTab((p) => ({ ...p, [usdot]: t }));
+    if (t === 'inspections') loadInspections(usdot);
+  }
+
+  function exportCSV() {
+    if (results.length === 0) return;
+    const head = ['USDOT','MC','Legal Name','DOT Status','Auth Status','Phone','Email','City','State','Zip','Added','MCS-150'];
+    const rows = results.map((c) => [c.usdot, c.docket || '', c.legalName || '', c.dotStatus, c.authStatus, c.phone || '', c.email || '', c.phy.city || '', c.phy.state || '', c.phy.zip || '', c.addDate || '', c.mcs150 || '']);
+    const csv = [head, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'carrier-search.csv';
+    a.click();
+  }
 
   return (
-    <main className="min-h-screen bg-[#f8fafc] text-slate-900">
-      <div className="bg-[#0f172a] text-white px-6 py-4 flex justify-between items-center shadow-md">
-        <div className="flex items-center gap-2">
-          <span className="font-extrabold text-xl tracking-tight">CARRIER SNAPSHOT</span>
-        </div>
-        <div className="flex gap-6 text-sm font-medium">
-          <Link href="/" className="text-blue-400">Simple Search</Link>
-          <Link href="/advanced" className="hover:text-blue-400 transition-colors">Advanced Search</Link>
-        </div>
-      </div>
-
-      <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8 space-y-8">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-extrabold text-[#0f172a] tracking-tight">Direct Lookup</h1>
-          <p className="text-sm text-slate-500 mt-2">Find active, inactive, and pending carriers instantly via live Socrata query.</p>
+    <main className="min-h-screen bg-slate-100 py-10 px-4">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-3xl font-extrabold text-slate-900">Carrier Intelligence Platform</h1>
+          <p className="text-sm text-slate-500 mt-1">Live FMCSA data — no database, always current.</p>
         </div>
 
-        <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by USDOT, MC#, or Company Name..."
-            className="flex-1 bg-white border border-slate-300 rounded-lg px-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
-          />
-          <button type="submit" disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-8 py-3 rounded-lg shadow-sm transition-colors disabled:opacity-50">
-            {loading ? 'Querying Socrata...' : 'Search'}
-          </button>
+        {/* Search + filters */}
+        <form onSubmit={(e) => { e.preventDefault(); runSearch(false); }} className="space-y-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input value={q} onChange={(e) => setQ(e.target.value)}
+              placeholder="USDOT, MC#, phone, or company name… (leave blank to browse by filters)"
+              className="flex-1 bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-600 outline-none" />
+            <button type="submit" disabled={loading}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-2.5 rounded-lg disabled:opacity-50">
+              {loading ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <select value={stateF} onChange={(e) => setStateF(e.target.value)}
+              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm">
+              <option value="">All States</option>
+              {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={statusF} onChange={(e) => setStatusF(e.target.value)}
+              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm">
+              <option value="all">All Authorities</option>
+              <option value="active">Active Only</option>
+            </select>
+            <select value={addedF} onChange={(e) => setAddedF(e.target.value)}
+              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm">
+              <option value="">Any time added</option>
+              <option value="7">New authorities — last 7 days</option>
+              <option value="30">New authorities — last month</option>
+              <option value="90">New authorities — last 3 months</option>
+              <option value="180">New authorities — last 6 months</option>
+            </select>
+            {results.length > 0 && (
+              <button type="button" onClick={exportCSV}
+                className="ml-auto text-sm font-semibold text-blue-700 border border-blue-300 bg-white rounded-lg px-4 py-2 hover:bg-blue-50">
+                Export CSV ({results.length})
+              </button>
+            )}
+          </div>
         </form>
 
-        <div className="space-y-6">
-          {searched && !loading && carriers.length > 1 && (
-            <div className="text-sm text-slate-500 font-medium px-1">
-              Found {carriers.length} matching entities.
-            </div>
-          )}
-
-          {carriers.map((carrier) => {
-            const currentTab = activeTab[carrier.usdot_number] || 'General';
-            const carrierInspections = inspections[carrier.usdot_number];
-            const isLoadingInspections = loadingInspections[carrier.usdot_number];
-            const insData = insuranceData[carrier.usdot_number];
-            const isLoadingInsurance = loadingInsurance[carrier.usdot_number];
-
+        {/* Results */}
+        <div className="space-y-4">
+          {results.map((c) => {
+            const isOpen = expanded === c.usdot;
+            const cargoTags = Object.entries(c.cargo).filter(([, v]) => v).map(([k]) => k);
             return (
-              <div key={carrier.usdot_number} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-slate-200 bg-white">
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div key={c.usdot} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                <button onClick={() => toggleExpand(c.usdot)} className="w-full text-left p-5">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-xl font-bold text-slate-900 uppercase">{carrier.legal_name || 'LEGAL NAME NOT ON FILE'}</h2>
-                      <div className="flex flex-wrap items-center gap-2 mt-2 text-xs font-semibold">
-                        <span className="text-slate-600">USDOT# <span className="text-slate-900">{carrier.usdot_number}</span></span>
-                        <span className={`px-2 py-0.5 rounded-full ${carrier.dot_status?.toUpperCase() === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                          {carrier.dot_status || 'Unknown'}
-                        </span>
-                        {carrier.docket_number && (
-                          <>
-                            <span className="text-slate-300">|</span>
-                            <span className="text-slate-600">Carrier <span className="text-slate-900">{carrier.docket_number}</span></span>
-                            <span className={`px-2 py-0.5 rounded-full ${carrier.op_auth_status?.toUpperCase() === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
-                              {carrier.op_auth_status || 'Pending'}
-                            </span>
-                          </>
-                        )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-lg font-bold text-slate-900 uppercase">{c.legalName || 'NAME NOT LISTED'}</h2>
+                        <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${badge(c.dotStatus)}`}>{c.dotStatus}</span>
+                        {c.docket && <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${badge(c.authStatus)}`}>{c.docket} · {c.authStatus}</span>}
+                      </div>
+                      <div className="text-xs text-slate-600 mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                        <span><strong>USDOT:</strong> {c.usdot}</span>
+                        <span><strong>Phone:</strong> {c.phone || 'N/A'}</span>
+                        {c.email && <span><strong>Email:</strong> <span className="text-blue-600">{c.email}</span></span>}
+                        <span><strong>Location:</strong> {[c.phy.city, c.phy.state].filter(Boolean).join(', ') || 'N/A'}</span>
+                        {c.addDate && <span><strong>Added:</strong> {c.addDate}</span>}
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-center min-w-[90px]">
-                        <span className="block text-[10px] font-bold tracking-wider text-slate-500 uppercase">Power Units</span>
-                        <span className="text-lg font-extrabold text-slate-800">{carrier.tot_pwr ?? '0'}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-center">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase">Power Units</div>
+                        <div className="text-lg font-extrabold">{c.powerUnits ?? '—'}</div>
                       </div>
-                      <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-center min-w-[90px]">
-                        <span className="block text-[10px] font-bold tracking-wider text-slate-500 uppercase">Drivers</span>
-                        <span className="text-lg font-extrabold text-slate-800">{carrier.tot_cdl ?? '0'}</span>
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-center">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase">Drivers</div>
+                        <div className="text-lg font-extrabold">{c.drivers ?? '—'}</div>
                       </div>
+                      <span className="text-slate-400 text-xl ml-1">{isOpen ? '▾' : '▸'}</span>
                     </div>
                   </div>
-                </div>
+                </button>
 
-                <div className="flex border-b border-slate-200 bg-slate-50 px-4 overflow-x-auto">
-                  {['General', 'SMS', 'Inspections', 'Insurance'].map(tab => (
-                    <button
-                      key={tab}
-                      onClick={() => handleTabChange(carrier.usdot_number, tab)}
-                      className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                        currentTab === tab ? 'border-blue-600 text-blue-700 bg-white' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
-                      }`}
-                    >
-                      {tab}
-                    </button>
-                  ))}
-                </div>
+                {isOpen && (
+                  <div className="border-t border-slate-200">
+                    <div className="flex border-b border-slate-200 bg-slate-50 px-4">
+                      {(['insurance', 'inspections'] as const).map((t) => (
+                        <button key={t} onClick={() => switchTab(c.usdot, t)}
+                          className={`px-5 py-2.5 text-sm font-medium border-b-2 capitalize ${tab[c.usdot] === t ? 'border-blue-600 text-blue-700 bg-white' : 'border-transparent text-slate-500'}`}>
+                          {t}
+                        </button>
+                      ))}
+                    </div>
 
-                <div className="p-6">
-                  {currentTab === 'General' && (
-                    <div className="animate-in fade-in duration-300 space-y-6">
-                      <div className="flex flex-wrap gap-4 text-xs text-slate-600">
-                        <span>Phone: <strong className="text-slate-800">{carrier.phone_number || 'N/A'}</strong></span>
-                        <span>Email: <strong className="text-blue-600">{carrier.email_address || 'N/A'}</strong></span>
-                      </div>
-                      <div className="bg-slate-50 border border-slate-200/80 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                        <div className="space-y-1 text-slate-600">
-                          <p><strong className="text-slate-800">Physical Address:</strong><br />
-                            {[carrier.phy_street, carrier.phy_city, carrier.phy_state, carrier.phy_zip].filter(Boolean).join(', ') || 'Not Listed'}
-                          </p>
-                          <p className="pt-2"><strong className="text-slate-800">Mailing:</strong><br />
-                            {[carrier.mailing_street, carrier.mailing_city, carrier.mailing_state, carrier.mailing_zip].filter(Boolean).join(', ') || 'Not Listed'}
-                          </p>
+                    <div className="p-5">
+                      {/* Overview strip */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4">
+                        <div>
+                          <p><strong>Physical:</strong> {[c.phy.street, c.phy.city, c.phy.state, c.phy.zip].filter(Boolean).join(', ') || 'Not listed'}</p>
+                          <p className="mt-1"><strong>Mailing:</strong> {[c.mail.street, c.mail.city, c.mail.state, c.mail.zip].filter(Boolean).join(', ') || 'Not listed'}</p>
+                          <p className="mt-1"><strong>Authority Type:</strong> {c.authType || 'N/A'} · <strong>MCS-150:</strong> {c.mcs150 || 'N/A'}</p>
                         </div>
-                        <div className="space-y-1 text-slate-600">
-                          <p className="flex items-center gap-2">
-                            <strong className="text-slate-800">Owner/Contact:</strong> 
-                            {carrier.owner_name === 'Searching L&I...' ? (
-                               <span className="flex items-center text-blue-600 gap-1"><span className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span> Searching L&I...</span>
-                            ) : carrier.owner_name}
-                          </p>
-                          <p><strong className="text-slate-800">Operating Scope:</strong> {carrier.op_auth_type || 'N/A'}</p>
-                          <p><strong className="text-slate-800">Last MCS-150:</strong> {carrier.mcs150_date || 'N/A'}</p>
+                        <div>
+                          <strong>Cargo:</strong>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {cargoTags.length ? cargoTags.map((t) => (
+                              <span key={t} className="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded text-[11px] font-medium">{t}</span>
+                            )) : <span className="text-slate-400">None reported</span>}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
 
-                  {currentTab === 'SMS' && (
-                    <div className="animate-in fade-in duration-300">
-                      {loadingSms[carrier.usdot_number] ? (
-                        <div className="py-12 flex justify-center items-center text-sm text-blue-600 font-medium space-x-2">
-                           <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                           <span>Querying Carrier Safety Measurement System...</span>
-                        </div>
+                      {tab[c.usdot] !== 'inspections' ? (
+                        ins[c.usdot]?.loading ? (
+                          <p className="text-sm text-blue-600 py-6 text-center">Loading insurance from FMCSA L&amp;I portal…</p>
+                        ) : !ins[c.usdot]?.data ? (
+                          <p className="text-sm text-slate-500 py-4">Insurance data unavailable for this carrier.</p>
+                        ) : (
+                          <div>
+                            <p className="text-xs text-slate-500 mb-2">
+                              <strong className="text-slate-700">Owner / Representative:</strong> {ins[c.usdot]!.data!.owner}
+                            </p>
+                            {ins[c.usdot]!.data!.policies.length === 0 ? (
+                              <p className="text-sm text-slate-500">No active/pending insurance filings found.</p>
+                            ) : (
+                              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                                <table className="min-w-full text-xs">
+                                  <thead className="bg-slate-50 text-slate-600 font-semibold">
+                                    <tr>
+                                      <th className="py-2 px-3 text-left">Form</th><th className="py-2 px-3 text-left">Type</th>
+                                      <th className="py-2 px-3 text-left">Insurance Carrier</th><th className="py-2 px-3 text-left">Policy #</th>
+                                      <th className="py-2 px-3 text-left">Coverage</th><th className="py-2 px-3 text-left">Effective</th>
+                                      <th className="py-2 px-3 text-left">Status</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {ins[c.usdot]!.data!.policies.map((p, i) => (
+                                      <tr key={i} className="hover:bg-slate-50">
+                                        <td className="py-2 px-3">{p.form}</td>
+                                        <td className="py-2 px-3">{p.type}</td>
+                                        <td className="py-2 px-3">{p.carrier}</td>
+                                        <td className="py-2 px-3 font-mono">{p.policy}</td>
+                                        <td className="py-2 px-3">{p.coverage}</td>
+                                        <td className="py-2 px-3">{p.effective}</td>
+                                        <td className="py-2 px-3">
+                                          <span className={`px-2 py-0.5 rounded-full font-semibold ${p.status.toLowerCase().includes('active') ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{p.status}</span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        )
                       ) : (
-                        <div>
-                           {!smsData[carrier.usdot_number] ? (
-                             <p className="text-sm italic text-slate-500 py-4">No SMS safety scores found for this carrier in the FMCSA database.</p>
-                           ) : (
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                                  <h3 className="text-xs font-bold tracking-wider text-slate-500 uppercase mb-3">Vehicle & Driver Fitness</h3>
-                                  <div className="space-y-2 text-sm text-slate-700">
-                                    <p className="flex justify-between border-b border-slate-200 pb-1">
-                                      <span>Unsafe Driving Measure:</span> 
-                                      <span className="font-semibold">{smsData[carrier.usdot_number].unsafe_driving_measure || 'N/A'}</span>
-                                    </p>
-                                    <p className="flex justify-between border-b border-slate-200 pb-1">
-                                      <span>HOS Compliance Measure:</span> 
-                                      <span className="font-semibold">{smsData[carrier.usdot_number].hos_compliance_measure || 'N/A'}</span>
-                                    </p>
-                                    <p className="flex justify-between border-b border-slate-200 pb-1">
-                                      <span>Vehicle Maint. Measure:</span> 
-                                      <span className="font-semibold">{smsData[carrier.usdot_number].vehicle_maint_measure || 'N/A'}</span>
-                                    </p>
-                                  </div>
-                               </div>
-                               
-                               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                                  <h3 className="text-xs font-bold tracking-wider text-slate-500 uppercase mb-3">Compliance & Incidents</h3>
-                                  <div className="space-y-2 text-sm text-slate-700">
-                                    <p className="flex justify-between border-b border-slate-200 pb-1">
-                                      <span>Crash Indicator Measure:</span> 
-                                      <span className="font-semibold">{smsData[carrier.usdot_number].crash_indicator_measure || 'N/A'}</span>
-                                    </p>
-                                    <p className="flex justify-between border-b border-slate-200 pb-1">
-                                      <span>Controlled Substance Measure:</span> 
-                                      <span className="font-semibold">{smsData[carrier.usdot_number].controlled_substance_measure || 'N/A'}</span>
-                                    </p>
-                                    <p className="flex justify-between border-b border-slate-200 pb-1">
-                                      <span>Total Inspections:</span> 
-                                      <span className="font-semibold">{smsData[carrier.usdot_number].total_inspections || 'N/A'}</span>
-                                    </p>
-                                  </div>
-                               </div>
-                             </div>
-                           )}
-                        </div>
+                        insp[c.usdot]?.loading ? (
+                          <p className="text-sm text-blue-600 py-6 text-center">Querying roadside inspection records…</p>
+                        ) : !insp[c.usdot]?.data || insp[c.usdot]!.data!.length === 0 ? (
+                          <p className="text-sm text-slate-500 py-4">No roadside inspections on record for this carrier.</p>
+                        ) : (
+                          <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                            <table className="min-w-full text-xs">
+                              <thead className="bg-slate-50 text-slate-600 font-semibold">
+                                <tr>
+                                  <th className="py-2 px-3 text-left">Date</th><th className="py-2 px-3 text-left">Report #</th>
+                                  <th className="py-2 px-3 text-left">State</th><th className="py-2 px-3 text-left">Inspection</th>
+                                  <th className="py-2 px-3 text-left">Result</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {insp[c.usdot]!.data!.map((r, i) => (
+                                  <tr key={i} className="hover:bg-slate-50">
+                                    <td className="py-2 px-3 whitespace-nowrap">{r.date}</td>
+                                    <td className="py-2 px-3 font-mono text-blue-600">{r.report}</td>
+                                    <td className="py-2 px-3 font-semibold">{r.state}</td>
+                                    <td className="py-2 px-3">{r.level}</td>
+                                    <td className="py-2 px-3">{r.summary}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )
                       )}
                     </div>
-                  )}
-
-                  {currentTab === 'Inspections' && (
-                    <div className="animate-in fade-in duration-300">
-                      {isLoadingInspections ? (
-                        <div className="py-12 flex justify-center items-center text-sm text-blue-600 font-medium space-x-2">
-                           <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                           <span>Querying Federal Motor Carrier database...</span>
-                        </div>
-                      ) : (
-                        <div>
-                           {!carrierInspections || carrierInspections.length === 0 ? (
-                             <p className="text-sm italic text-slate-500 py-4">No recent roadside inspections found in DOT records.</p>
-                           ) : (
-                             <div className="overflow-x-auto border border-slate-200 rounded-lg">
-                               <table className="min-w-full divide-y divide-slate-200 text-xs">
-                                 <thead className="bg-slate-50 text-slate-600 font-semibold">
-                                   <tr>
-                                     <th className="py-2 px-3 text-left">Date</th>
-                                     <th className="py-2 px-3 text-left">Report #</th>
-                                     <th className="py-2 px-3 text-left">State</th>
-                                     <th className="py-2 px-3 text-left">Category</th>
-                                     <th className="py-2 px-3 text-left">Violation Detail</th>
-                                   </tr>
-                                 </thead>
-                                 <tbody className="divide-y divide-slate-100 bg-white">
-                                   {carrierInspections.map((insp, idx) => (
-                                     <tr key={idx} className="hover:bg-slate-50">
-                                       <td className="py-2 px-3 whitespace-nowrap">{insp.inspection_date}</td>
-                                       <td className="py-2 px-3 font-mono text-blue-600">{insp.report_number}</td>
-                                       <td className="py-2 px-3 font-semibold">{insp.report_state}</td>
-                                       <td className="py-2 px-3 text-slate-700">{insp.basic_desc}</td>
-                                       <td className="py-2 px-3 text-rose-700">{insp.violation_group_desc}</td>
-                                     </tr>
-                                   ))}
-                                 </tbody>
-                               </table>
-                             </div>
-                           )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {currentTab === 'Insurance' && (
-                    <div className="animate-in fade-in duration-300">
-                      {isLoadingInsurance ? (
-                        <div className="py-12 flex justify-center items-center text-sm text-blue-600 font-medium space-x-2">
-                           <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                           <span>Scraping Licensing & Insurance data from DOT...</span>
-                        </div>
-                      ) : (
-                        <div>
-                           {!insData || insData.length === 0 ? (
-                             <p className="text-sm italic text-slate-500 py-4">No active insurance certificates found in the L&I database.</p>
-                           ) : (
-                             <div className="overflow-x-auto border border-slate-200 rounded-lg">
-                               <table className="min-w-full divide-y divide-slate-200 text-xs">
-                                 <thead className="bg-slate-50 text-slate-600 font-semibold">
-                                   <tr>
-                                     <th className="py-3 px-4 text-left">Form</th>
-                                     <th className="py-3 px-4 text-left">Class</th>
-                                     <th className="py-3 px-4 text-left">Insurance Carrier</th>
-                                     <th className="py-3 px-4 text-left">Policy/Surety</th>
-                                     <th className="py-3 px-4 text-left">Received Date</th>
-                                     <th className="py-3 px-4 text-left">Coverage</th>
-                                     <th className="py-3 px-4 text-left">Effective Date</th>
-                                     <th className="py-3 px-4 text-left">Status</th>
-                                   </tr>
-                                 </thead>
-                                 <tbody className="divide-y divide-slate-100 bg-white">
-                                   {insData.map((pol: any, idx: number) => (
-                                     <tr key={idx} className="hover:bg-slate-50">
-                                       <td className="py-3 px-4 font-medium text-slate-800">{pol.form}</td>
-                                       <td className="py-3 px-4">{pol.type}</td>
-                                       <td className="py-3 px-4">{pol.carrier}</td>
-                                       <td className="py-3 px-4 font-mono text-blue-600">{pol.policy}</td>
-                                       <td className="py-3 px-4">{pol.received}</td>
-                                       <td className="py-3 px-4 font-semibold text-emerald-700">{pol.coverage}</td>
-                                       <td className="py-3 px-4">{pol.effective}</td>
-                                       <td className="py-3 px-4 font-bold text-emerald-700">{pol.status}</td>
-                                     </tr>
-                                   ))}
-                                 </tbody>
-                               </table>
-                             </div>
-                           )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             );
           })}
 
-          {searched && !loading && carriers.length === 0 && (
-            <div className="bg-white border border-dashed border-slate-300 rounded-xl p-12 text-center text-sm text-slate-500">
-              No carrier records found matching &ldquo;{searchTerm}&rdquo;. Try another USDOT, MC number, or company name.
+          {results.length > 0 && !exhausted && (
+            <button onClick={() => runSearch(true)} disabled={loading}
+              className="w-full py-3 text-sm font-semibold text-blue-700 border border-blue-300 bg-white rounded-lg hover:bg-blue-50 disabled:opacity-50">
+              {loading ? 'Loading…' : 'Load more results'}
+            </button>
+          )}
+
+          {searched && !loading && results.length === 0 && (
+            <div className="border border-dashed border-slate-300 rounded-xl p-12 text-center text-sm text-slate-500">
+              No carriers matched. Try a different term or loosen the filters.
             </div>
           )}
         </div>
