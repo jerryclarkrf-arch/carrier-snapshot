@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 export interface Carrier {
   usdot: string; docketDigits: string; docket: string | null; legalName: string | null; dba: string | null;
+  companyOfficer: string | null; entityType: string | null;
   dotStatus: string; authStatus: string; authType: string | null;
   phone: string | null; email: string | null;
   powerUnits: number | null; drivers: number | null;
@@ -14,6 +15,14 @@ export interface Carrier {
 }
 
 interface InsPolicy { form: string; type: string; carrier: string; policy: string; coverage: string; effective: string; status: string; }
+interface Financial {
+  minCoverage: string | null;
+  bipd: string | null;
+  cargoReq: boolean;
+  cargoFile: boolean;
+  bondReq: boolean;
+  bondFile: boolean;
+}
 interface Insp { date: string; report: string; state: string; level: string; summary: string; }
 interface HistoryEvent { date: string; label: string; }
 
@@ -73,7 +82,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
   const [open, setOpen] = useState(false);
-  const [ins, setIns] = useState<{ loading: boolean; owner: string | null; policies: InsPolicy[] } | null>(null);
+  const [ins, setIns] = useState<{ loading: boolean; owner: string | null; policies: InsPolicy[]; financial: Financial | null } | null>(null);
   const [insp, setInsp] = useState<{ loading: boolean; rows: Insp[] } | null>(null);
   const [history, setHistory] = useState<{ loading: boolean; events: HistoryEvent[] } | null>(null);
 
@@ -83,11 +92,19 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
     if (!next) return;
 
     if (!ins) {
-      setIns({ loading: true, owner: null, policies: [] });
-      fetch('/api/insurance?dotNumber=' + c.usdot)
+      setIns({ loading: true, owner: null, policies: [], financial: null });
+      fetch('/api/insurance?dotNumber=' + c.usdot + (c.companyOfficer ? '&owner=' + encodeURIComponent(c.companyOfficer) : ''))
         .then((r) => r.json())
-        .then((j) => setIns({ loading: false, owner: j.owner || null, policies: j.error ? [] : j.policies || [] }))
-        .catch(() => setIns({ loading: false, owner: null, policies: [] }));
+        .then((j) => {
+          if (j.error) return setIns({ loading: false, owner: null, policies: [], financial: null });
+          return setIns({
+            loading: false,
+            owner: j.owner || null,
+            policies: j.policies || [],
+            financial: j.financial || null,
+          });
+        })
+        .catch(() => setIns({ loading: false, owner: null, policies: [], financial: null }));
     }
     if (!insp) {
       setInsp({ loading: true, rows: [] });
@@ -122,8 +139,12 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
               {c.docket && (
                 <span className={`px-2 py-0.5 text-[11px] font-bold rounded-full whitespace-nowrap ${badge(c.authStatus)}`}>{c.docket} · {c.authStatus}</span>
               )}
+              {c.entityType && (
+                <span className="px-2 py-0.5 text-[11px] font-semibold rounded-full whitespace-nowrap bg-indigo-50 text-indigo-700 border border-indigo-200">{c.entityType}</span>
+              )}
             </div>
             {c.dba && <p className="text-xs text-slate-500 mt-0.5">DBA: <span className="font-medium text-slate-700">{c.dba}</span></p>}
+            {c.companyOfficer && <p className="text-xs text-slate-500 mt-0.5">Owner: <span className="font-medium text-slate-700">{c.companyOfficer}</span></p>}
             <div className="text-xs text-slate-600 mt-1.5 flex flex-wrap gap-x-4 gap-y-1.5">
               <span><strong>USDOT:</strong> {c.usdot}</span>
               {phone && (
@@ -161,7 +182,7 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
         <div className="border-t border-slate-200 p-5 space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-4">
             <div className="space-y-1.5">
-              <p><strong className="text-slate-800">Owner / Representative:</strong> {ins?.loading ? 'Loading…' : ins?.owner || 'See insurance filings below'}</p>
+              <p><strong className="text-slate-800">Owner / Representative:</strong> {c.companyOfficer || (ins?.loading ? 'Loading…' : ins?.owner) || 'See insurance filings below'}</p>
               <p><strong className="text-slate-800">Physical Address:</strong> {addr(c.phy) || 'Not listed'}</p>
               <p><strong className="text-slate-800">Mailing Address:</strong> {addr(c.mail) || 'Not listed'}</p>
               <p><strong className="text-slate-800">Authority Type:</strong> {c.authType || 'N/A'}</p>
@@ -195,37 +216,65 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
           </Section>
 
           <Section title={`Insurance Filings (${ins?.policies.length ?? (ins?.loading ? '…' : 0)})`}>
-            {ins?.loading ? (
-              <p className="text-xs text-slate-400">Loading from FMCSA L&amp;I portal…</p>
-            ) : !ins || ins.policies.length === 0 ? (
-              <p className="text-xs text-slate-500">No active/pending insurance filings found.</p>
+            {!ins || ins?.loading ? (
+              <p className="text-xs text-slate-400">Loading insurance filings…</p>
             ) : (
-              <div className="overflow-x-auto border border-slate-200 rounded-lg">
-                <table className="min-w-full text-xs">
-                  <thead className="bg-slate-50 text-slate-600 font-semibold">
-                    <tr>
-                      <th className="py-2 px-3 text-left">Form</th><th className="py-2 px-3 text-left">Type</th>
-                      <th className="py-2 px-3 text-left">Carrier</th><th className="py-2 px-3 text-left">Policy #</th>
-                      <th className="py-2 px-3 text-left">Coverage</th><th className="py-2 px-3 text-left">Effective</th>
-                      <th className="py-2 px-3 text-left">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {ins.policies.map((p, i) => (
-                      <tr key={i} className="hover:bg-slate-50">
-                        <td className="py-2 px-3">{p.form}</td>
-                        <td className="py-2 px-3">{p.type}</td>
-                        <td className="py-2 px-3">{p.carrier}</td>
-                        <td className="py-2 px-3 font-mono">{p.policy}</td>
-                        <td className="py-2 px-3">{p.coverage}</td>
-                        <td className="py-2 px-3">{p.effective}</td>
-                        <td className="py-2 px-3">
-                          <span className={`px-2 py-0.5 rounded-full font-semibold ${p.status.toLowerCase().includes('active') ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{p.status}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                {ins.financial && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    {ins.financial.minCoverage && (
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Min. Required</p>
+                        <p className="text-sm font-extrabold text-slate-800">{ins.financial.minCoverage}</p>
+                      </div>
+                    )}
+                    {ins.financial.bipd && (
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">BIPD On File</p>
+                        <p className="text-sm font-extrabold text-slate-800">{ins.financial.bipd}</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">Cargo</p>
+                      <p className="text-sm font-semibold text-slate-800">{ins.financial.cargoReq ? 'Required' : 'Not required'}{ins.financial.cargoFile ? ' · On file' : ''}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">Bond</p>
+                      <p className="text-sm font-semibold text-slate-800">{ins.financial.bondReq ? 'Required' : 'Not required'}{ins.financial.bondFile ? ' · On file' : ''}</p>
+                    </div>
+                  </div>
+                )}
+                {ins.policies.length === 0 ? (
+                  <p className="text-xs text-slate-500">No active/pending insurance filings found.</p>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                    <table className="min-w-full text-xs">
+                      <thead className="bg-slate-50 text-slate-600 font-semibold">
+                        <tr>
+                          <th className="py-2 px-3 text-left">Form</th><th className="py-2 px-3 text-left">Type</th>
+                          <th className="py-2 px-3 text-left">Carrier</th><th className="py-2 px-3 text-left">Policy #</th>
+                          <th className="py-2 px-3 text-left">Coverage</th><th className="py-2 px-3 text-left">Effective</th>
+                          <th className="py-2 px-3 text-left">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {ins.policies.map((p, i) => (
+                          <tr key={i} className="hover:bg-slate-50">
+                            <td className="py-2 px-3">{p.form}</td>
+                            <td className="py-2 px-3">{p.type}</td>
+                            <td className="py-2 px-3">{p.carrier}</td>
+                            <td className="py-2 px-3 font-mono">{p.policy}</td>
+                            <td className="py-2 px-3">{p.coverage}</td>
+                            <td className="py-2 px-3">{p.effective}</td>
+                            <td className="py-2 px-3">
+                              <span className={`px-2 py-0.5 rounded-full font-semibold ${p.status.toLowerCase().includes('active') ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{p.status}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
           </Section>

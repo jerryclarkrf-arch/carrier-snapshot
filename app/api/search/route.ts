@@ -14,6 +14,7 @@ function cached(key: string) {
 }
 
 const STATUS: Record<string, string> = { A: 'Active', I: 'Inactive', P: 'Pending' };
+const ENTITY_TYPE: Record<string, string> = { MC: 'Motor Carrier', MX: 'Broker', FF: 'Freight Forwarder' };
 const esc = (s: string) => s.replace(/'/g, "''");
 type Row = Record<string, unknown>;
 const str = (r: Row, k: string) => {
@@ -38,6 +39,8 @@ function mapCarrier(r: Row) {
     docket: prefix && num1 ? `${prefix}${num1}` : num1 || null,
     legalName: str(r, 'legal_name') || null,
     dba: str(r, 'dba_name') || null,
+    companyOfficer: str(r, 'company_officer_1') || null,
+    entityType: ENTITY_TYPE[(str(r, 'docket1prefix') || '').toUpperCase()] || null,
     dotStatus: STATUS[(str(r, 'status_code') || '').toUpperCase()] || str(r, 'status_code') || 'Unknown',
     authStatus: STATUS[(str(r, 'docket1_status_code') || '').toUpperCase()] || str(r, 'docket1_status_code') || 'Unknown',
     authType: str(r, 'classdef') || null,
