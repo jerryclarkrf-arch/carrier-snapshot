@@ -22,6 +22,46 @@ const badge = (s: string) =>
   s === 'Pending' ? 'bg-amber-100 text-amber-800' :
   s === 'Inactive' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700';
 
+export function fmtPhone(v?: string | null): string | null {
+  if (!v) {
+    return null;
+  }
+  const d = v.replace(/\D/g, '');
+  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  if (d.length === 11 && d.startsWith('1')) return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
+  if (d.length === 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return v.trim();
+}
+
+function CopyBtn({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      aria-label={`Copy ${label}`}
+      title={`Copy ${label}`}
+      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-slate-200 text-[10px] font-semibold text-slate-500 hover:text-blue-700 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+    >
+      {copied ? '✓ Copied' : (
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+      )}
+    </button>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
@@ -67,6 +107,8 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
 
   const cargoTags = Object.entries(c.cargo).filter(([, v]) => v).map(([k]) => k);
   const addr = (a: Carrier['phy']) => [a.street, a.city, a.state, a.zip].filter(Boolean).join(', ');
+  const phone = fmtPhone(c.phone);
+  const email = c.email;
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -82,10 +124,20 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
               )}
             </div>
             {c.dba && <p className="text-xs text-slate-500 mt-0.5">DBA: <span className="font-medium text-slate-700">{c.dba}</span></p>}
-            <div className="text-xs text-slate-600 mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+            <div className="text-xs text-slate-600 mt-1.5 flex flex-wrap gap-x-4 gap-y-1.5">
               <span><strong>USDOT:</strong> {c.usdot}</span>
-              <span><strong>Phone:</strong> {c.phone || 'N/A'}</span>
-              {c.email && <span><strong>Email:</strong> <span className="text-blue-600">{c.email}</span></span>}
+              {phone && (
+                <span className="inline-flex items-center gap-1">
+                  <strong>Phone:</strong> {phone} <CopyBtn value={phone} label="phone number" />
+                </span>
+              )}
+              {!phone && <span><strong>Phone:</strong> N/A</span>}
+              {email && (
+                <span className="inline-flex items-center gap-1">
+                  <strong>Email:</strong> <a href={`mailto:${email}`} className="text-blue-600 hover:underline">{email}</a>
+                  <CopyBtn value={email} label="email address" />
+                </span>
+              )}
               <span><strong>Location:</strong> {[c.phy.city, c.phy.state].filter(Boolean).join(', ') || 'N/A'}</span>
               {c.addDate && <span><strong>Added:</strong> {c.addDate}</span>}
             </div>

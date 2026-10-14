@@ -15,7 +15,12 @@ function cached(key: string) {
 
 const STATUS: Record<string, string> = { A: 'Active', I: 'Inactive', P: 'Pending' };
 const esc = (s: string) => s.replace(/'/g, "''");
-const num = (v: any) => (v !== undefined && v !== null && v !== '' ? Number(v) : null);
+type Row = Record<string, unknown>;
+const str = (r: Row, k: string) => {
+  const v = r[k];
+  return v === undefined || v === null ? undefined : String(v);
+};
+const num = (v: unknown) => (v !== undefined && v !== null && v !== '' ? Number(v) : null);
 
 function fmtDate(v?: string | null) {
   if (!v) return null;
@@ -23,25 +28,25 @@ function fmtDate(v?: string | null) {
   return s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}/${s.slice(0, 4)}` : v;
 }
 
-function mapCarrier(r: any) {
-  const prefix = r.docket1prefix || '';
-  const num1 = r.docket1 || '';
-  const flag = (v: any) => v === 'Y' || v === 'X';
+function mapCarrier(r: Row) {
+  const prefix = str(r, 'docket1prefix') || '';
+  const num1 = str(r, 'docket1') || '';
+  const flag = (v: unknown) => v === 'Y' || v === 'X';
   return {
-    usdot: String(r.dot_number || '').replace(/^0+/, '') || String(r.dot_number),
+    usdot: (str(r, 'dot_number') || '').replace(/^0+/, '') || str(r, 'dot_number'),
     docketDigits: num1,
     docket: prefix && num1 ? `${prefix}${num1}` : num1 || null,
-    legalName: r.legal_name || null,
-    dba: r.dba_name || null,
-    dotStatus: STATUS[(r.status_code || '').toUpperCase()] || r.status_code || 'Unknown',
-    authStatus: STATUS[(r.docket1_status_code || '').toUpperCase()] || r.docket1_status_code || 'Unknown',
-    authType: r.classdef || null,
-    phone: r.phone || r.bus_telno || null,
-    email: r.email_address || null,
+    legalName: str(r, 'legal_name') || null,
+    dba: str(r, 'dba_name') || null,
+    dotStatus: STATUS[(str(r, 'status_code') || '').toUpperCase()] || str(r, 'status_code') || 'Unknown',
+    authStatus: STATUS[(str(r, 'docket1_status_code') || '').toUpperCase()] || str(r, 'docket1_status_code') || 'Unknown',
+    authType: str(r, 'classdef') || null,
+    phone: str(r, 'phone') || str(r, 'bus_telno') || null,
+    email: str(r, 'email_address') || null,
     powerUnits: num(r.power_units) ?? num(r.owntract),
     drivers: num(r.total_drivers) ?? num(r.total_cdl),
-    phy: { street: r.phy_street, city: r.phy_city, state: r.phy_state, zip: r.phy_zip },
-    mail: { street: r.carrier_mailing_street, city: r.carrier_mailing_city, state: r.carrier_mailing_state, zip: r.carrier_mailing_zip },
+    phy: { street: str(r, 'phy_street'), city: str(r, 'phy_city'), state: str(r, 'phy_state'), zip: str(r, 'phy_zip') },
+    mail: { street: str(r, 'carrier_mailing_street'), city: str(r, 'carrier_mailing_city'), state: str(r, 'carrier_mailing_state'), zip: str(r, 'carrier_mailing_zip') },
     cargo: {
       'General Freight': flag(r.crgo_genfreight),
       'Fresh Produce': flag(r.crgo_freshprod),
@@ -49,15 +54,16 @@ function mapCarrier(r: any) {
       'Refrigerated': flag(r.crgo_coldfood),
       'Hazmat': flag(r.hm_ind),
     },
-    addDate: fmtDate(r.add_date),
-    mcs150: fmtDate(r.mcsipdate),
+    addDate: fmtDate(str(r, 'add_date')),
+    mcs150: fmtDate(str(r, 'mcsipdate')),
   };
 }
 
 export async function GET(req: NextRequest) {
   const p = new URL(req.url).searchParams;
-  const limit = Math.min(parseInt(p.get('limit') || '25', 10) || 25, 50);
-  const offset = parseInt(p.get('offset') || '0', 10) || 0;
+  const limit = Math.min(parseInt(p.get('limit') || '50', 10) || 50, 50);
+  const page = Math.max(parseInt(p.get('page') || '1', 10) || 1, 1);
+  const offset = (page - 1) * limit;
 
   // Universal (simple page)
   const q = (p.get('q') || '').trim();
@@ -72,16 +78,38 @@ export async function GET(req: NextRequest) {
   // Shared filters
   const state = (p.get('state') || '').trim().toUpperCase();
   const status = p.get('status') || 'all';
-  const added = parseInt(p.get('added') || '', 10);
+  const addedFrom = (p.get('addedFrom') || '').trim();
+  const addedTo = (p.get('addedTo') || '').trim();
+
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const badDate = (d: string) => {
+    if (!d) return false;
+    if (!DATE_RE.test(d)) return true;
+    return isNaN(new Date(d + 'T00:00:00Z').getTime());
+  };
+  if (badDate(addedFrom) || badDate(addedTo)) {
+    return NextResponse.json({ error: 'Added dates must be in YYYY-MM-DD format.' }, { status: 400 });
+  }
+  if (addedFrom && addedTo) {
+    const from = new Date(addedFrom + 'T00:00:00Z').getTime();
+    const to = new Date(addedTo + 'T00:00:00Z').getTime();
+    if (to < from) {
+      return NextResponse.json({ error: 'Added To must be on or after Added From.' }, { status: 400 });
+    }
+    if (to - from > 31 * 86400000) {
+      return NextResponse.json({ error: 'Added date range cannot exceed one month (31 days).' }, { status: 400 });
+    }
+  }
 
   const hasDiscrete = !!(fName || fDba || fUsdot || fMc || fPhone || fCity || fZip);
-  if (!q && !hasDiscrete && !state && status === 'all' && !added) {
+  const hasDates = !!(addedFrom || addedTo);
+  if (!q && !hasDiscrete && !state && status === 'all' && !hasDates) {
     return NextResponse.json({ error: 'Enter a search term or pick at least one filter.' }, { status: 400 });
   }
 
-  const cacheKey = JSON.stringify([q, fName, fDba, fUsdot, fMc, fPhone, fCity, fZip, state, status, added, limit, offset]);
+  const cacheKey = JSON.stringify([q, fName, fDba, fUsdot, fMc, fPhone, fCity, fZip, state, status, addedFrom, addedTo, limit, page]);
   const hit = cached(cacheKey);
-  if (hit) return NextResponse.json({ results: hit, cached: true });
+  if (hit) return NextResponse.json(hit);
 
   const wheres: string[] = [];
   let dbaUsed = false;
@@ -94,61 +122,79 @@ export async function GET(req: NextRequest) {
     if (fDba) { wheres.push(`upper(dba_name) like '%${esc(fDba.toUpperCase())}%'`); dbaUsed = true; }
     if (fCity) wheres.push(`upper(phy_city) like '%${esc(fCity.toUpperCase())}%'`);
     if (fZip) wheres.push(`phy_zip like '%${esc(fZip)}%'`);
-  } else {
+  } else if (q) {
     const stripped = q.replace(/[\s-]/g, '');
     const mcMatch = stripped.match(/^(MC|FF|MX)(\d+)$/i);
     const digits = mcMatch ? mcMatch[2] : stripped.replace(/\D/g, '');
     const isNumeric = /^\d+$/.test(stripped) || !!mcMatch;
     if (isNumeric && digits) {
       wheres.push(`(dot_number='${esc(digits)}' OR docket1='${esc(digits)}' OR phone like '%${esc(digits)}%')`);
-    } else if (q) {
+    } else {
       wheres.push(`upper(legal_name) like '%${esc(q.toUpperCase())}%'`);
     }
   }
 
   if (state) wheres.push(`phy_state='${esc(state)}'`);
   if (status === 'active') wheres.push(`docket1_status_code='A'`);
-  if (added > 0) {
-    const cutoff = new Date(Date.now() - added * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
-    wheres.push(`add_date>='${cutoff}'`);
+  if (hasDates) {
+    if (addedFrom) wheres.push(`add_date>='${addedFrom.replace(/-/g, '')}'`);
+    if (addedTo) wheres.push(`add_date<='${addedTo.replace(/-/g, '')}'`);
     wheres.push(`docket1_status_code='A'`);
   }
 
-  const order = added > 0 ? `&$order=${encodeURIComponent('add_date DESC')}` : '';
+  const order = hasDates ? `&$order=${encodeURIComponent('add_date DESC')}` : '';
   const dotFetch = async (where: string) => {
-    const url = `${CENSUS}?$limit=${limit}&$offset=${offset}&$where=${encodeURIComponent(where)}${order}`;
-    const res = await fetch(url, { headers: { 'X-App-Token': process.env.DOT_APP_TOKEN || '' } });
-    return { res, data: await res.json() };
+    const rowsUrl = `${CENSUS}?$limit=${limit}&$offset=${offset}&$where=${encodeURIComponent(where)}${order}`;
+    const countUrl = `${CENSUS}?$select=count(*)&$where=${encodeURIComponent(where)}`;
+    const headers = { 'X-App-Token': process.env.DOT_APP_TOKEN || '' };
+    const [rowsRes, countRes] = await Promise.all([fetch(rowsUrl, { headers }), fetch(countUrl, { headers })]);
+    const [rows, count] = await Promise.all([rowsRes.json(), countRes.json()]);
+    return { rowsRes, countRes, rows, count };
   };
 
   try {
-    let { res, data } = await dotFetch(wheres.join(' AND '));
+    let { rowsRes, rows, count } = await dotFetch(wheres.join(' AND '));
 
     // Fallback: if dba_name column doesn't exist in this dataset, retry without it
-    if ((!res.ok || !Array.isArray(data)) && dbaUsed) {
+    if ((!rowsRes.ok || !Array.isArray(rows)) && dbaUsed) {
       const retryWheres = wheres.filter((w) => !w.includes('dba_name'));
-      ({ res, data } = await dotFetch(retryWheres.join(' AND ')));
+      ({ rowsRes, rows, count } = await dotFetch(retryWheres.join(' AND ')));
       console.warn('dba_name column not supported — DBA filter skipped');
     }
 
-    if (!res.ok || !Array.isArray(data)) {
-      return NextResponse.json({ error: 'DOT search failed', detail: data }, { status: 502 });
+    if (!rowsRes.ok || !Array.isArray(rows)) {
+      return NextResponse.json({ error: 'DOT search failed', detail: rows }, { status: 502 });
     }
 
-    let results = data.map(mapCarrier);
+    let results = rows.map(mapCarrier);
+    let total = 0;
+    if (Array.isArray(count) && count[0] && count[0].count !== undefined) {
+      total = Number(count[0].count) || 0;
+    }
 
-    if (!hasDiscrete && q) {
+    if (q) {
       const stripped = q.replace(/[\s-]/g, '');
       const digits = stripped.replace(/\D/g, '');
       if (/^\d+$/.test(stripped) || /^(MC|FF|MX)\d+$/i.test(stripped)) {
         const exact = results.filter((c) => c.usdot === digits || c.docketDigits === digits);
-        if (exact.length > 0) results = exact;
+        if (exact.length > 0) {
+          results = exact;
+          total = exact.length;
+        }
       }
     }
 
-    cache.set(cacheKey, { ts: Date.now(), data: results });
-    return NextResponse.json({ results });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    const payload = {
+      results,
+      total,
+      page,
+      limit,
+      pages: Math.max(1, Math.ceil(total / limit)),
+      cached: false,
+    };
+    cache.set(cacheKey, { ts: Date.now(), data: payload });
+    return NextResponse.json(payload);
+  } catch (e: unknown) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }
