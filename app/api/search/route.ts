@@ -32,6 +32,7 @@ function mapCarrier(r: any) {
     docketDigits: num1,
     docket: prefix && num1 ? `${prefix}${num1}` : num1 || null,
     legalName: r.legal_name || null,
+    dba: r.dba_name || null,
     dotStatus: STATUS[(r.status_code || '').toUpperCase()] || r.status_code || 'Unknown',
     authStatus: STATUS[(r.docket1_status_code || '').toUpperCase()] || r.docket1_status_code || 'Unknown',
     authType: r.classdef || null,
@@ -55,33 +56,56 @@ function mapCarrier(r: any) {
 
 export async function GET(req: NextRequest) {
   const p = new URL(req.url).searchParams;
-  const q = (p.get('q') || '').trim();
-  const state = (p.get('state') || '').trim().toUpperCase();
-  const status = p.get('status') || 'all';
-  const added = parseInt(p.get('added') || '', 10);
   const limit = Math.min(parseInt(p.get('limit') || '25', 10) || 25, 50);
   const offset = parseInt(p.get('offset') || '0', 10) || 0;
 
-  if (!q && !state && status === 'all' && !added) {
+  // Universal (simple page)
+  const q = (p.get('q') || '').trim();
+  // Discrete (advanced page)
+  const fName = (p.get('name') || '').trim();
+  const fDba = (p.get('dba') || '').trim();
+  const fUsdot = (p.get('usdot') || '').trim().replace(/^0+/, '');
+  const fMc = (p.get('mc') || '').trim().replace(/\D/g, '');
+  const fPhone = (p.get('phone') || '').trim().replace(/\D/g, '');
+  const fCity = (p.get('city') || '').trim();
+  const fZip = (p.get('zip') || '').trim();
+  // Shared filters
+  const state = (p.get('state') || '').trim().toUpperCase();
+  const status = p.get('status') || 'all';
+  const added = parseInt(p.get('added') || '', 10);
+
+  const hasDiscrete = !!(fName || fDba || fUsdot || fMc || fPhone || fCity || fZip);
+  if (!q && !hasDiscrete && !state && status === 'all' && !added) {
     return NextResponse.json({ error: 'Enter a search term or pick at least one filter.' }, { status: 400 });
   }
 
-  const cacheKey = JSON.stringify([q, state, status, added, limit, offset]);
+  const cacheKey = JSON.stringify([q, fName, fDba, fUsdot, fMc, fPhone, fCity, fZip, state, status, added, limit, offset]);
   const hit = cached(cacheKey);
   if (hit) return NextResponse.json({ results: hit, cached: true });
 
-  // "MC1032275" / "MC-1032275" → digits
-  const stripped = q.replace(/[\s-]/g, '');
-  const mcMatch = stripped.match(/^(MC|FF|MX)(\d+)$/i);
-  const digits = mcMatch ? mcMatch[2] : stripped.replace(/\D/g, '');
-  const isNumeric = /^\d+$/.test(stripped) || !!mcMatch;
-
   const wheres: string[] = [];
-  if (isNumeric && digits) {
-    wheres.push(`(dot_number='${esc(digits)}' OR docket1='${esc(digits)}' OR phone like '%${esc(digits)}%')`);
-  } else if (q) {
-    wheres.push(`upper(legal_name) like '%${esc(q.toUpperCase())}%'`);
+  let dbaUsed = false;
+
+  if (hasDiscrete) {
+    if (fUsdot) wheres.push(`dot_number='${esc(fUsdot)}'`);
+    if (fMc) wheres.push(`docket1='${esc(fMc)}'`);
+    if (fPhone) wheres.push(`phone like '%${esc(fPhone)}%'`);
+    if (fName) wheres.push(`upper(legal_name) like '%${esc(fName.toUpperCase())}%'`);
+    if (fDba) { wheres.push(`upper(dba_name) like '%${esc(fDba.toUpperCase())}%'`); dbaUsed = true; }
+    if (fCity) wheres.push(`upper(phy_city) like '%${esc(fCity.toUpperCase())}%'`);
+    if (fZip) wheres.push(`phy_zip like '%${esc(fZip)}%'`);
+  } else {
+    const stripped = q.replace(/[\s-]/g, '');
+    const mcMatch = stripped.match(/^(MC|FF|MX)(\d+)$/i);
+    const digits = mcMatch ? mcMatch[2] : stripped.replace(/\D/g, '');
+    const isNumeric = /^\d+$/.test(stripped) || !!mcMatch;
+    if (isNumeric && digits) {
+      wheres.push(`(dot_number='${esc(digits)}' OR docket1='${esc(digits)}' OR phone like '%${esc(digits)}%')`);
+    } else if (q) {
+      wheres.push(`upper(legal_name) like '%${esc(q.toUpperCase())}%'`);
+    }
   }
+
   if (state) wheres.push(`phy_state='${esc(state)}'`);
   if (status === 'active') wheres.push(`docket1_status_code='A'`);
   if (added > 0) {
@@ -91,21 +115,35 @@ export async function GET(req: NextRequest) {
   }
 
   const order = added > 0 ? `&$order=${encodeURIComponent('add_date DESC')}` : '';
-  const url = `${CENSUS}?$limit=${limit}&$offset=${offset}&$where=${encodeURIComponent(wheres.join(' AND '))}${order}`;
+  const dotFetch = async (where: string) => {
+    const url = `${CENSUS}?$limit=${limit}&$offset=${offset}&$where=${encodeURIComponent(where)}${order}`;
+    const res = await fetch(url, { headers: { 'X-App-Token': process.env.DOT_APP_TOKEN || '' } });
+    return { res, data: await res.json() };
+  };
 
   try {
-    const res = await fetch(url, { headers: { 'X-App-Token': process.env.DOT_APP_TOKEN || '' } });
-    const data = await res.json();
+    let { res, data } = await dotFetch(wheres.join(' AND '));
+
+    // Fallback: if dba_name column doesn't exist in this dataset, retry without it
+    if ((!res.ok || !Array.isArray(data)) && dbaUsed) {
+      const retryWheres = wheres.filter((w) => !w.includes('dba_name'));
+      ({ res, data } = await dotFetch(retryWheres.join(' AND ')));
+      console.warn('dba_name column not supported — DBA filter skipped');
+    }
+
     if (!res.ok || !Array.isArray(data)) {
       return NextResponse.json({ error: 'DOT search failed', detail: data }, { status: 502 });
     }
 
     let results = data.map(mapCarrier);
 
-    // Guard: a digit string also matches phone substrings — prefer exact USDOT/MC hits if any exist
-    if (isNumeric) {
-      const exact = results.filter((c) => c.usdot === digits || c.docketDigits === digits);
-      if (exact.length > 0) results = exact;
+    if (!hasDiscrete && q) {
+      const stripped = q.replace(/[\s-]/g, '');
+      const digits = stripped.replace(/\D/g, '');
+      if (/^\d+$/.test(stripped) || /^(MC|FF|MX)\d+$/i.test(stripped)) {
+        const exact = results.filter((c) => c.usdot === digits || c.docketDigits === digits);
+        if (exact.length > 0) results = exact;
+      }
     }
 
     cache.set(cacheKey, { ts: Date.now(), data: results });
