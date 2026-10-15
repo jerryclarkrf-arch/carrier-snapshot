@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 export interface Carrier {
   usdot: string; docketDigits: string; docket: string | null; legalName: string | null; dba: string | null;
-  companyOfficer: string | null; entityType: string | null;
+  companyOfficer: string | null; entityType: string | null; entityTypes: string[];
   dotStatus: string; authStatus: string; authType: string | null;
   phone: string | null; email: string | null;
   powerUnits: number | null; drivers: number | null;
@@ -139,9 +139,9 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
               {c.docket && (
                 <span className={`px-2 py-0.5 text-[11px] font-bold rounded-full whitespace-nowrap ${badge(c.authStatus)}`}>{c.docket} · {c.authStatus}</span>
               )}
-              {c.entityType && (
-                <span className="px-2 py-0.5 text-[11px] font-semibold rounded-full whitespace-nowrap bg-indigo-50 text-indigo-700 border border-indigo-200">{c.entityType}</span>
-              )}
+              {(c.entityTypes.length ? c.entityTypes : c.entityType ? [c.entityType] : []).map((t) => (
+                <span key={t} className="px-2 py-0.5 text-[11px] font-semibold rounded-full whitespace-nowrap bg-indigo-50 text-indigo-700 border border-indigo-200">{t}</span>
+              ))}
             </div>
             {c.dba && <p className="text-xs text-slate-500 mt-0.5">DBA: <span className="font-medium text-slate-700">{c.dba}</span></p>}
             {c.companyOfficer && <p className="text-xs text-slate-500 mt-0.5">Owner: <span className="font-medium text-slate-700">{c.companyOfficer}</span></p>}

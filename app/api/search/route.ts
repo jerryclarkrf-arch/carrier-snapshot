@@ -15,6 +15,7 @@ function cached(key: string) {
 
 const STATUS: Record<string, string> = { A: 'Active', I: 'Inactive', P: 'Pending' };
 const ENTITY_TYPE: Record<string, string> = { MC: 'Motor Carrier', MX: 'Broker', FF: 'Freight Forwarder' };
+const ENTITY_ORDER = ['Motor Carrier', 'Broker', 'Freight Forwarder'];
 const esc = (s: string) => s.replace(/'/g, "''");
 type Row = Record<string, unknown>;
 const str = (r: Row, k: string) => {
@@ -22,6 +23,13 @@ const str = (r: Row, k: string) => {
   return v === undefined || v === null ? undefined : String(v);
 };
 const num = (v: unknown) => (v !== undefined && v !== null && v !== '' ? Number(v) : null);
+
+function entityTypesOf(r: Row): string[] {
+  const found = [str(r, 'docket1prefix'), str(r, 'docket2prefix'), str(r, 'docket3prefix')]
+    .map((p) => ENTITY_TYPE[(p || '').toUpperCase()])
+    .filter((t): t is string => !!t);
+  return ENTITY_ORDER.filter((t) => found.includes(t));
+}
 
 function fmtDate(v?: string | null) {
   if (!v) return null;
@@ -33,6 +41,7 @@ function mapCarrier(r: Row) {
   const prefix = str(r, 'docket1prefix') || '';
   const num1 = str(r, 'docket1') || '';
   const flag = (v: unknown) => v === 'Y' || v === 'X';
+  const eTypes = entityTypesOf(r);
   return {
     usdot: (str(r, 'dot_number') || '').replace(/^0+/, '') || str(r, 'dot_number'),
     docketDigits: num1,
@@ -40,7 +49,8 @@ function mapCarrier(r: Row) {
     legalName: str(r, 'legal_name') || null,
     dba: str(r, 'dba_name') || null,
     companyOfficer: str(r, 'company_officer_1') || null,
-    entityType: ENTITY_TYPE[(str(r, 'docket1prefix') || '').toUpperCase()] || null,
+    entityType: eTypes[0] || null,
+    entityTypes: eTypes,
     dotStatus: STATUS[(str(r, 'status_code') || '').toUpperCase()] || str(r, 'status_code') || 'Unknown',
     authStatus: STATUS[(str(r, 'docket1_status_code') || '').toUpperCase()] || str(r, 'docket1_status_code') || 'Unknown',
     authType: str(r, 'classdef') || null,
