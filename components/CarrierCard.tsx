@@ -25,6 +25,20 @@ interface Financial {
 }
 interface Insp { date: string; report: string; state: string; level: string; summary: string; }
 interface HistoryEvent { date: string; label: string; }
+interface SmsBasic { key: string; label: string; measure: number | null; inspectionsWithViolations: number | null; percentile: number | null; }
+interface SmsData {
+  available: boolean;
+  found: boolean;
+  basics: SmsBasic[];
+  counts: {
+    inspections: number | null;
+    driverInspections: number | null;
+    driverOutOfService: number | null;
+    vehicleInspections: number | null;
+    vehicleOutOfService: number | null;
+  } | null;
+  crashes: number | null;
+}
 
 const badge = (s: string) =>
   s === 'Active' ? 'bg-emerald-100 text-emerald-800' :
@@ -85,6 +99,7 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
   const [ins, setIns] = useState<{ loading: boolean; owner: string | null; policies: InsPolicy[]; financial: Financial | null } | null>(null);
   const [insp, setInsp] = useState<{ loading: boolean; rows: Insp[] } | null>(null);
   const [history, setHistory] = useState<{ loading: boolean; events: HistoryEvent[] } | null>(null);
+  const [sms, setSms] = useState<{ loading: boolean; data: SmsData | null } | null>(null);
 
   const expand = async () => {
     const next = !open;
@@ -119,6 +134,13 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
         .then((r) => (r.ok ? r.json() : { events: [] }))
         .then((j) => setHistory({ loading: false, events: j.events || [] }))
         .catch(() => setHistory({ loading: false, events: [] }));
+    }
+    if (!sms) {
+      setSms({ loading: true, data: null });
+      fetch('/api/sms?dot=' + c.usdot)
+        .then((r) => r.json())
+        .then((j) => setSms({ loading: false, data: j }))
+        .catch(() => setSms({ loading: false, data: null }));
     }
   };
 
@@ -306,6 +328,54 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </Section>
+
+          <Section title={`Safety Measurement System`}>
+            {sms?.loading ? (
+              <p className="text-xs text-slate-400">Loading…</p>
+            ) : !sms?.data || !sms.data.available ? (
+              <p className="text-xs text-slate-500">SMS safety data is not available for this carrier.</p>
+            ) : !sms.data.found || sms.data.basics.every((b) => b.measure === null && b.percentile === null) ? (
+              <p className="text-xs text-slate-500">No SMS safety data on record for this carrier.</p>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+                  {sms.data.basics.map((b) => (
+                    <div key={b.key} className="flex items-center gap-2">
+                      <span
+                        className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${
+                          b.percentile === null
+                            ? 'bg-slate-300'
+                            : b.percentile < 50
+                              ? 'bg-emerald-500'
+                              : b.percentile < 75
+                                ? 'bg-amber-400'
+                                : 'bg-rose-500'
+                        }`}
+                      />
+                      <span className="text-slate-600 flex-1">{b.label}</span>
+                      {b.inspectionsWithViolations !== null && b.inspectionsWithViolations > 0 && (
+                        <span className="text-slate-400">{b.inspectionsWithViolations} viol</span>
+                      )}
+                      <span className="font-semibold text-slate-800 whitespace-nowrap">
+                        {b.percentile !== null ? `${b.percentile}%` : b.measure !== null ? b.measure : '—'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {sms.data.counts && (sms.data.counts.inspections !== null || sms.data.crashes !== null) && (
+                  <p className="text-xs text-slate-400">
+                    {sms.data.counts.inspections !== null
+                      ? `${sms.data.counts.inspections.toLocaleString()} inspection${sms.data.counts.inspections === 1 ? '' : 's'}`
+                      : 'No inspections'}
+                    {(sms.data.counts.driverOutOfService || sms.data.counts.vehicleOutOfService)
+                      ? ` · ${((sms.data.counts.driverOutOfService || 0) + (sms.data.counts.vehicleOutOfService || 0)).toLocaleString()} out-of-service`
+                      : ''}
+                    {sms.data.crashes !== null ? ` · ${sms.data.crashes.toLocaleString()} crash${sms.data.crashes === 1 ? '' : 'es'}` : ''}
+                  </p>
+                )}
               </div>
             )}
           </Section>
