@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
+import { authClient } from '@/lib/auth/client';
 
 export interface Carrier {
   usdot: string; docketDigits: string; docket: string | null; legalName: string | null; dba: string | null;
@@ -26,6 +28,18 @@ interface Financial {
 interface Insp { date: string; report: string; state: string; level: string; summary: string; }
 interface HistoryEvent { date: string; label: string; }
 interface SmsBasic { key: string; label: string; measure: number | null; inspectionsWithViolations: number | null; percentile: number | null; }
+interface CrashRow {
+  date: string;
+  report: string;
+  state: string;
+  fatalities: number;
+  injuries: number;
+  towAway: boolean;
+  hazmat: boolean;
+  vehicle: string;
+  conditions: string;
+  road: string;
+}
 interface SmsData {
   available: boolean;
   found: boolean;
@@ -70,7 +84,10 @@ function CopyBtn({ value, label }: { value: string; label: string }) {
   return (
     <button
       type="button"
-      onClick={copy}
+      onClick={(e) => {
+        e.stopPropagation();
+        copy();
+      }}
       aria-label={`Copy ${label}`}
       title={`Copy ${label}`}
       className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-slate-200 text-[10px] font-semibold text-slate-500 hover:text-blue-700 hover:border-blue-300 hover:bg-blue-50 transition-colors"
@@ -100,48 +117,135 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
   const [insp, setInsp] = useState<{ loading: boolean; rows: Insp[] } | null>(null);
   const [history, setHistory] = useState<{ loading: boolean; events: HistoryEvent[] } | null>(null);
   const [sms, setSms] = useState<{ loading: boolean; data: SmsData | null } | null>(null);
+  const [crashes, setCrashes] = useState<{ loading: boolean; rows: CrashRow[]; summary: { total: number; fatal: number; withInjury: number; towAway: number } | null } | null>(null);
+  const [watched, setWatched] = useState<{ loading: boolean; watching: boolean }>({ loading: false, watching: false });
+  const { data: session } = authClient.useSession();
+
+  const refreshWatch = async () => {
+    if (watched.loading) return;
+    if (!session?.user) return;
+    setWatched((w) => ({ ...w, loading: true }));
+    try {
+      const r = await fetch('/api/watchlist?usdot=' + c.usdot);
+      const j = await r.json();
+      setWatched({ loading: false, watching: !!j.watching });
+    } catch {
+      setWatched({ loading: false, watching: false });
+    }
+  };
+
+  const toggleWatch = async () => {
+    if (!session?.user) return;
+    const next = !watched.watching;
+    setWatched({ loading: true, watching: next });
+    try {
+      if (next) {
+        await fetch('/api/watchlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ usdot: c.usdot, legalName: c.legalName }),
+        });
+      } else {
+        await fetch('/api/watchlist?usdot=' + c.usdot, { method: 'DELETE' });
+      }
+      setWatched({ loading: false, watching: next });
+    } catch {
+      setWatched({ loading: false, watching: !next });
+    }
+  };
 
   const expand = async () => {
     const next = !open;
     setOpen(next);
     if (!next) return;
+    if (session?.user) void refreshWatch();
 
-    if (!ins) {
-      setIns({ loading: true, owner: null, policies: [], financial: null });
-      fetch('/api/insurance?dotNumber=' + c.usdot + (c.companyOfficer ? '&owner=' + encodeURIComponent(c.companyOfficer) : ''))
-        .then((r) => r.json())
-        .then((j) => {
-          if (j.error) return setIns({ loading: false, owner: null, policies: [], financial: null });
-          return setIns({
-            loading: false,
-            owner: j.owner || null,
-            policies: j.policies || [],
-            financial: j.financial || null,
-          });
-        })
-        .catch(() => setIns({ loading: false, owner: null, policies: [], financial: null }));
-    }
+    if (!ins) setIns({ loading: true, owner: null, policies: [], financial: null });
+    if (!insp) setInsp({ loading: true, rows: [] });
+    if (!history) setHistory({ loading: true, events: [] });
+    if (!sms) setSms({ loading: true, data: null });
+    if (!crashes) setCrashes({ loading: true, rows: [], summary: null });
+
+    const insData = !ins
+      ? fetch('/api/insurance?dotNumber=' + c.usdot + (c.companyOfficer ? '&owner=' + encodeURIComponent(c.companyOfficer) : ''))
+          .then((r) => r.json())
+          .then((j) => {
+            if (j.error) {
+              setIns({ loading: false, owner: null, policies: [], financial: null });
+              return null;
+            }
+            const d = { owner: j.owner || null, policies: j.policies || [], financial: j.financial || null };
+            setIns({ loading: false, ...d });
+            return d;
+          })
+          .catch(() => {
+            setIns({ loading: false, owner: null, policies: [], financial: null });
+            return null;
+          })
+      : Promise.resolve(null);
+
     if (!insp) {
-      setInsp({ loading: true, rows: [] });
       fetch('/api/inspections?dot=' + c.usdot)
         .then((r) => r.json())
         .then((j) => setInsp({ loading: false, rows: j.inspections || [] }))
         .catch(() => setInsp({ loading: false, rows: [] }));
     }
-    if (!history) {
-      setHistory({ loading: true, events: [] });
-      fetch('/api/status-history?dot=' + c.usdot)
-        .then((r) => (r.ok ? r.json() : { events: [] }))
-        .then((j) => setHistory({ loading: false, events: j.events || [] }))
-        .catch(() => setHistory({ loading: false, events: [] }));
-    }
+
+    const histData = !history
+      ? fetch('/api/status-history?dot=' + c.usdot)
+          .then((r) => (r.ok ? r.json() : { events: [] }))
+          .then((j) => {
+            setHistory({ loading: false, events: j.events || [] });
+            return (j.events || []) as unknown[];
+          })
+          .catch(() => {
+            setHistory({ loading: false, events: [] });
+            return [];
+          })
+      : Promise.resolve([] as unknown[]);
+
     if (!sms) {
-      setSms({ loading: true, data: null });
       fetch('/api/sms?dot=' + c.usdot)
         .then((r) => r.json())
         .then((j) => setSms({ loading: false, data: j }))
         .catch(() => setSms({ loading: false, data: null }));
     }
+
+    if (!crashes) {
+      fetch('/api/crashes?dot=' + c.usdot)
+        .then((r) => r.json())
+        .then((j) => setCrashes({ loading: false, rows: j.crashes || [], summary: j.summary || null }))
+        .catch(() => setCrashes({ loading: false, rows: [], summary: null }));
+    }
+
+    // Record an append-only history snapshot once insurance and status history land
+    Promise.all([insData, histData]).then(([insRes, events]) => {
+      if (!insRes) return;
+      fetch('/api/snapshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          carrier: {
+            usdot: c.usdot,
+            legalName: c.legalName,
+            dba: c.dba,
+            entityTypes: c.entityTypes,
+            companyOfficer: c.companyOfficer,
+            phone: c.phone,
+            email: c.email,
+            phy: c.phy,
+            powerUnits: c.powerUnits,
+            drivers: c.drivers,
+            dotStatus: c.dotStatus,
+            authStatus: c.authStatus,
+            addDate: c.addDate,
+            mcs150: c.mcs150,
+          },
+          insurance: { owner: insRes.owner, policies: insRes.policies, financial: insRes.financial },
+          statusEvents: events,
+        }),
+      }).catch(() => void 0);
+    });
   };
 
   const cargoTags = Object.entries(c.cargo).filter(([, v]) => v).map(([k]) => k);
@@ -152,7 +256,18 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       {/* Header row */}
-      <button onClick={expand} className="w-full text-left p-5 hover:bg-slate-50/60 transition-colors">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={expand}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            expand();
+          }
+        }}
+        className="w-full text-left p-5 hover:bg-slate-50/60 transition-colors cursor-pointer"
+      >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -197,11 +312,35 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
             <span className="text-slate-400 text-xl ml-1">{open ? '▾' : '▸'}</span>
           </div>
         </div>
-      </button>
+      </div>
 
       {/* Expanded detail */}
       {open && (
         <div className="border-t border-slate-200 p-5 space-y-5">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-bold text-slate-700">Carrier Details</h3>
+            {session?.user ? (
+              <button
+                type="button"
+                onClick={toggleWatch}
+                disabled={watched.loading}
+                className={`text-sm font-semibold px-4 py-1.5 rounded-lg border transition-colors disabled:opacity-50 ${
+                  watched.watching
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    : 'border-blue-300 bg-white text-blue-700 hover:bg-blue-50'
+                }`}
+              >
+                {watched.loading ? '…' : watched.watching ? '✓ Watching' : '+ Watch changes'}
+              </button>
+            ) : (
+              <Link
+                href="/auth/sign-in"
+                className="text-sm font-semibold px-4 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Sign in to watch
+              </Link>
+            )}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-4">
             <div className="space-y-1.5">
               <p><strong className="text-slate-800">Owner / Representative:</strong> {c.companyOfficer || (ins?.loading ? 'Loading…' : ins?.owner) || 'See insurance filings below'}</p>
@@ -376,6 +515,58 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
                     {sms.data.crashes !== null ? ` · ${sms.data.crashes.toLocaleString()} crash${sms.data.crashes === 1 ? '' : 'es'}` : ''}
                   </p>
                 )}
+              </div>
+            )}
+          </Section>
+
+          <Section title={`Crashes (${crashes?.rows.length ?? (crashes?.loading ? '…' : 0)})`}>
+            {crashes?.loading ? (
+              <p className="text-xs text-slate-400">Loading…</p>
+            ) : !crashes || crashes.rows.length === 0 ? (
+              <p className="text-xs text-slate-500">No crashes on record for this carrier.</p>
+            ) : (
+              <div className="space-y-3">
+                {crashes.summary && (
+                  <p className="text-xs text-slate-500">
+                    {crashes.summary.total} crash{crashes.summary.total === 1 ? '' : 'es'} recorded
+                    {crashes.summary.fatal > 0 ? ` · ${crashes.summary.fatal} with fatalit${crashes.summary.fatal === 1 ? 'y' : 'ies'}` : ''}
+                    {crashes.summary.withInjury > 0 ? ` · ${crashes.summary.withInjury} with injur${crashes.summary.withInjury === 1 ? 'y' : 'ies'}` : ''}
+                    {crashes.summary.towAway > 0 ? ` · ${crashes.summary.towAway} tow-away` : ''}
+                  </p>
+                )}
+                <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-slate-50 text-slate-600 font-semibold">
+                      <tr>
+                        <th className="py-2 px-3 text-left">Date</th><th className="py-2 px-3 text-left">State</th>
+                        <th className="py-2 px-3 text-left">Report #</th><th className="py-2 px-3 text-left">Outcome</th>
+                        <th className="py-2 px-3 text-left">Vehicle</th><th className="py-2 px-3 text-left">Conditions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {crashes.rows.map((r, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 whitespace-nowrap font-semibold">{r.date}</td>
+                          <td className="py-2 px-3">{r.state}</td>
+                          <td className="py-2 px-3 font-mono text-blue-600">{r.report}</td>
+                          <td className="py-2 px-3">
+                            {r.fatalities > 0 ? (
+                              <span className="text-rose-700 font-semibold">{r.fatalities} fatal</span>
+                            ) : r.injuries > 0 ? (
+                              <span className="text-amber-700 font-semibold">{r.injuries} injured</span>
+                            ) : (
+                              <span className="text-slate-600">No injury</span>
+                            )}
+                            {r.towAway && <span className="text-slate-400"> · tow-away</span>}
+                            {r.hazmat && <span className="text-orange-600"> · hazmat</span>}
+                          </td>
+                          <td className="py-2 px-3">{r.vehicle}</td>
+                          <td className="py-2 px-3 text-slate-500">{r.conditions} · {r.road}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </Section>

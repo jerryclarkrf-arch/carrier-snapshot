@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import AuthLinks from '@/components/AuthLinks';
 
 export default function Nav() {
   const path = usePathname();
@@ -26,10 +27,13 @@ export default function Nav() {
             <span className="block text-[10px] font-medium text-slate-400 uppercase tracking-wide">Live FMCSA data</span>
           </span>
         </Link>
-        <nav className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1">
-          {link('/', 'Simple Search')}
-          {link('/advanced', 'Advanced Search')}
-        </nav>
+        <div className="flex items-center gap-3">
+          <nav className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1">
+            {link('/', 'Simple Search')}
+            {link('/advanced', 'Advanced Search')}
+          </nav>
+          <AuthLinks />
+        </div>
       </div>
     </header>
   );
