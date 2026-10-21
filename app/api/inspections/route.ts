@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,9 @@ function fmtDate(v?: string) {
 }
 
 export async function GET(req: NextRequest) {
+  const { data: session } = await auth.getSession();
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const dot = (new URL(req.url).searchParams.get('dot') || '').replace(/^0+/, '');
   if (!dot) return NextResponse.json({ error: 'dot param required' }, { status: 400 });
 
@@ -38,19 +42,24 @@ export async function GET(req: NextRequest) {
     const data = await res.json();
     if (!res.ok || !Array.isArray(data)) return NextResponse.json({ inspections: [] });
 
-    const inspections = data.map((r: any) => {
-      const viol = parseInt(r.viol_total || '0', 10);
-      const oos = parseInt(r.oos_total || '0', 10);
+    type Row = Record<string, unknown>;
+    const str = (r: Row, k: string) => {
+      const v = r[k];
+      return v === undefined || v === null ? undefined : String(v);
+    };
+    const inspections = (data as Row[]).map((r) => {
+      const viol = parseInt(str(r, 'viol_total') || '0', 10);
+      const oos = parseInt(str(r, 'oos_total') || '0', 10);
       let summary = 'No violations';
       if (viol > 0) {
         summary = `${viol} violation${viol > 1 ? 's' : ''}`;
         if (oos > 0) summary += ` (${oos} out-of-service)`;
       }
       return {
-        date: fmtDate(r.insp_date),
-        report: r.report_number || r.inspection_id || 'Unknown',
-        state: r.report_state || 'N/A',
-        level: LEVELS[r.insp_level_id] || `Level ${r.insp_level_id || '?'}`,
+        date: fmtDate(str(r, 'insp_date')),
+        report: str(r, 'report_number') || str(r, 'inspection_id') || 'Unknown',
+        state: str(r, 'report_state') || 'N/A',
+        level: LEVELS[str(r, 'insp_level_id') || ''] || `Level ${str(r, 'insp_level_id') || '?'}`,
         summary,
       };
     });

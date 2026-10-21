@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { authClient } from '@/lib/auth/client';
 
 export interface Carrier {
   usdot: string; docketDigits: string; docket: string | null; legalName: string | null; dba: string | null;
   companyOfficer: string | null; entityType: string | null; entityTypes: string[];
   dotStatus: string; authStatus: string; authType: string | null;
-  phone: string | null; email: string | null;
+  phone: string | null; email: string | null; masked?: boolean;
   powerUnits: number | null; drivers: number | null;
   phy: { street?: string; city?: string; state?: string; zip?: string };
   mail: { street?: string; city?: string; state?: string; zip?: string };
@@ -120,6 +121,7 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
   const [crashes, setCrashes] = useState<{ loading: boolean; rows: CrashRow[]; summary: { total: number; fatal: number; withInjury: number; towAway: number } | null } | null>(null);
   const [watched, setWatched] = useState<{ loading: boolean; watching: boolean }>({ loading: false, watching: false });
   const { data: session } = authClient.useSession();
+  const router = useRouter();
 
   const refreshWatch = async () => {
     if (watched.loading) return;
@@ -155,6 +157,10 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
   };
 
   const expand = async () => {
+    if (!session?.user) {
+      router.push('/auth/sign-up');
+      return;
+    }
     const next = !open;
     setOpen(next);
     if (!next) return;
@@ -286,14 +292,21 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
               <span><strong>USDOT:</strong> {c.usdot}</span>
               {phone && (
                 <span className="inline-flex items-center gap-1">
-                  <strong>Phone:</strong> {phone} <CopyBtn value={phone} label="phone number" />
+                  <strong>Phone:</strong>
+                  <span className={c.masked ? 'text-slate-400 italic' : undefined}>{phone}</span>
+                  {!c.masked && <CopyBtn value={phone} label="phone number" />}
                 </span>
               )}
               {!phone && <span><strong>Phone:</strong> N/A</span>}
               {email && (
                 <span className="inline-flex items-center gap-1">
-                  <strong>Email:</strong> <a href={`mailto:${email}`} className="text-blue-600 hover:underline">{email}</a>
-                  <CopyBtn value={email} label="email address" />
+                  <strong>Email:</strong>
+                  {c.masked ? (
+                    <span className="text-slate-400 italic">{email}</span>
+                  ) : (
+                    <a href={`mailto:${email}`} className="text-blue-600 hover:underline">{email}</a>
+                  )}
+                  {!c.masked && <CopyBtn value={email} label="email address" />}
                 </span>
               )}
               <span><strong>Location:</strong> {[c.phy.city, c.phy.state].filter(Boolean).join(', ') || 'N/A'}</span>

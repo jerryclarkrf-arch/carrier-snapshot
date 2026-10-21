@@ -1,10 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth/server';
 
 export const dynamic = 'force-dynamic';
 
 const CENSUS = 'https://data.transportation.gov/resource/az4n-8mr2.json';
 const TTL = 10 * 60 * 1000;
 const cache = new Map<string, { ts: number; data: unknown }>();
+
+const MASK_PHONE = '(xxx) xxx-xxxx';
+const MASK_EMAIL = 'xxx@xxx.xxx';
+const MASK_NAME = 'XXXXX';
+
+type CarrierRecord = ReturnType<typeof mapCarrier> & { masked?: boolean };
+
+function maskCarriers(results: CarrierRecord[]): CarrierRecord[] {
+  return results.map((c) => ({
+    ...c,
+    masked: true,
+    phone: c.phone ? MASK_PHONE : c.phone,
+    email: c.email ? MASK_EMAIL : c.email,
+    companyOfficer: c.companyOfficer ? MASK_NAME : c.companyOfficer,
+  }));
+}
 
 function cached(key: string) {
   const hit = cache.get(key);
@@ -120,7 +137,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Enter a search term or pick at least one filter.' }, { status: 400 });
   }
 
-  const cacheKey = JSON.stringify([q, fName, fDba, fUsdot, fMc, fPhone, fCity, fZip, state, status, addedFrom, addedTo, limit, page]);
+  const { data: session } = await auth.getSession();
+  const loggedIn = !!session?.user;
+
+  const cacheKey = JSON.stringify([q, fName, fDba, fUsdot, fMc, fPhone, fCity, fZip, state, status, addedFrom, addedTo, limit, page, loggedIn]);
   const hit = cached(cacheKey);
   if (hit) return NextResponse.json(hit);
 
@@ -205,6 +225,9 @@ export async function GET(req: NextRequest) {
       pages: Math.max(1, Math.ceil(total / limit)),
       cached: false,
     };
+    if (!loggedIn) {
+      payload.results = maskCarriers(results);
+    }
     cache.set(cacheKey, { ts: Date.now(), data: payload });
     return NextResponse.json(payload);
   } catch (e: unknown) {

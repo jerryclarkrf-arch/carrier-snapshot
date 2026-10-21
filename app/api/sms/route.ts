@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +38,9 @@ const toPct = (v: unknown): number | null => {
 };
 
 export async function GET(req: NextRequest) {
+  const { data: session } = await auth.getSession();
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const dot = (new URL(req.url).searchParams.get('dot') || '').replace(/^0+/, '');
   if (!dot) return NextResponse.json({ error: 'dot param required' }, { status: 400 });
 

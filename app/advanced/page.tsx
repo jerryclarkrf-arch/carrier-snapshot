@@ -1,14 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import Nav from '@/components/Nav';
 import CarrierCard, { Carrier } from '@/components/CarrierCard';
+import { authClient } from '@/lib/auth/client';
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
 
 const empty = { name: '', dba: '', usdot: '', mc: '', phone: '', city: '', zip: '', state: '', status: 'all', addedFrom: '', addedTo: '' };
 
 export default function AdvancedSearch() {
+  const { data: session } = authClient.useSession();
+  const loggedIn = !!session?.user;
   const [f, setF] = useState({ ...empty });
   const [results, setResults] = useState<Carrier[]>([]);
   const [total, setTotal] = useState(0);
@@ -183,15 +187,23 @@ export default function AdvancedSearch() {
             >
               Clear
             </button>
-            {results.length > 0 && (
-              <button
-                type="button"
-                onClick={exportCSV}
-                className="ml-auto text-sm font-semibold text-blue-700 border border-blue-300 bg-white rounded-lg px-4 py-2.5 hover:bg-blue-50 transition-colors"
-              >
-                Export CSV
-              </button>
-            )}
+            {results.length > 0 &&
+              (loggedIn ? (
+                <button
+                  type="button"
+                  onClick={exportCSV}
+                  className="ml-auto text-sm font-semibold text-blue-700 border border-blue-300 bg-white rounded-lg px-4 py-2.5 hover:bg-blue-50 transition-colors"
+                >
+                  Export CSV
+                </button>
+              ) : (
+                <Link
+                  href="/auth/sign-up"
+                  className="ml-auto text-sm font-semibold text-blue-700 border border-blue-300 bg-white rounded-lg px-4 py-2.5 hover:bg-blue-50 transition-colors"
+                >
+                  Sign in to export
+                </Link>
+              ))}
           </div>
         </form>
 

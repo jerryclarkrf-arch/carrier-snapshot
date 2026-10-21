@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
+import { auth } from '@/lib/auth/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -175,6 +176,9 @@ async function scrapeLNI(dotNumber: string) {
 }
 
 export async function GET(request: Request) {
+  const { data: session } = await auth.getSession();
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const raw = (searchParams.get('dotNumber') || '').trim();
   const dot = raw.replace(/^0+/, '');
