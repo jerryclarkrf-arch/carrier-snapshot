@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { authClient } from '@/lib/auth/client';
+import Section from '@/components/Section';
+import InspectionDetail from '@/components/InspectionDetail';
 
 export interface Carrier {
   usdot: string; docketDigits: string; docket: string | null; legalName: string | null; dba: string | null;
@@ -26,7 +28,22 @@ interface Financial {
   bondReq: boolean;
   bondFile: boolean;
 }
-interface Insp { date: string; report: string; state: string; level: string; summary: string; }
+interface Insp {
+  inspectionId: string;
+  date: string;
+  report: string;
+  reportState: string;
+  reportNumber: string;
+  state: string;
+  level: string;
+  summary: string;
+  timeStart: string | null;
+  timeEnd: string | null;
+  facility: string | null;
+  shipper: string | null;
+  location: string | null;
+  grossWeight: string | null;
+}
 interface HistoryEvent { date: string; label: string; }
 interface SmsBasic { key: string; label: string; measure: number | null; inspectionsWithViolations: number | null; percentile: number | null; }
 interface CrashRow {
@@ -103,19 +120,11 @@ function CopyBtn({ value, label }: { value: string; label: string }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <h4 className="text-[11px] font-bold tracking-wider text-slate-400 uppercase border-b border-slate-200 pb-1 mb-2">{title}</h4>
-      {children}
-    </div>
-  );
-}
-
 export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
   const [open, setOpen] = useState(false);
   const [ins, setIns] = useState<{ loading: boolean; owner: string | null; policies: InsPolicy[]; financial: Financial | null } | null>(null);
   const [insp, setInsp] = useState<{ loading: boolean; rows: Insp[] } | null>(null);
+  const [openInsp, setOpenInsp] = useState<string | null>(null);
   const [history, setHistory] = useState<{ loading: boolean; events: HistoryEvent[] } | null>(null);
   const [sms, setSms] = useState<{ loading: boolean; data: SmsData | null } | null>(null);
   const [crashes, setCrashes] = useState<{ loading: boolean; rows: CrashRow[]; summary: { total: number; fatal: number; withInjury: number; towAway: number } | null } | null>(null);
@@ -463,21 +472,61 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
                 <table className="min-w-full text-xs">
                   <thead className="bg-slate-50 text-slate-600 font-semibold">
                     <tr>
+                      <th className="py-2 px-2 text-left w-6" />
                       <th className="py-2 px-3 text-left">Date</th><th className="py-2 px-3 text-left">Report #</th>
                       <th className="py-2 px-3 text-left">State</th><th className="py-2 px-3 text-left">Inspection</th>
                       <th className="py-2 px-3 text-left">Result</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {insp.rows.map((r, i) => (
-                      <tr key={i} className="hover:bg-slate-50">
-                        <td className="py-2 px-3 whitespace-nowrap">{r.date}</td>
-                        <td className="py-2 px-3 font-mono text-blue-600">{r.report}</td>
-                        <td className="py-2 px-3 font-semibold">{r.state}</td>
-                        <td className="py-2 px-3">{r.level}</td>
-                        <td className="py-2 px-3">{r.summary}</td>
-                      </tr>
-                    ))}
+                    {insp.rows.map((r) => {
+                      const key = r.inspectionId || `${r.reportState}-${r.report}`;
+                      const isOpen = openInsp === key;
+                      const toggle = () => setOpenInsp(isOpen ? null : key);
+                      return (
+                        <Fragment key={key}>
+                          <tr className={isOpen ? 'bg-blue-50/40' : 'hover:bg-slate-50'}>
+                            <td className="py-2 px-2 align-middle">
+                              <button
+                                type="button"
+                                onClick={toggle}
+                                aria-expanded={isOpen}
+                                aria-label={isOpen ? 'Hide report details' : 'Show report details'}
+                                title={isOpen ? 'Hide report details' : 'Show report details'}
+                                className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-blue-700 hover:bg-blue-100 transition-colors"
+                              >
+                                <span className={`inline-block transition-transform ${isOpen ? 'rotate-90' : ''}`}>▸</span>
+                              </button>
+                            </td>
+                            <td className="py-2 px-3 whitespace-nowrap">{r.date}</td>
+                            <td className="py-2 px-3">
+                              <button
+                                type="button"
+                                onClick={toggle}
+                                aria-expanded={isOpen}
+                                className="font-mono text-blue-600 hover:underline"
+                              >
+                                {r.report}
+                              </button>
+                            </td>
+                            <td className="py-2 px-3 font-semibold">{r.state}</td>
+                            <td className="py-2 px-3">{r.level}</td>
+                            <td className="py-2 px-3">{r.summary}</td>
+                          </tr>
+                          {isOpen && (
+                            <tr className="bg-slate-50/70">
+                              <td colSpan={6} className="px-4 pb-4 pt-2">
+                                <InspectionDetail
+                                  inspectionId={r.inspectionId}
+                                  report={r.reportNumber || r.report}
+                                  state={r.reportState || r.state}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

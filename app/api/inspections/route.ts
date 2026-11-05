@@ -22,6 +22,18 @@ function fmtDate(v?: string) {
   return s.length === 8 ? `${s.slice(4, 6)}/${s.slice(6, 8)}/${s.slice(0, 4)}` : v;
 }
 
+// MCMIS stores inspection times as HHMM (e.g. 1243 -> 12:43 PM).
+function fmtTime(v?: string) {
+  const s = String(v || '').replace(/\D/g, '');
+  if (s.length < 3) return null;
+  const hours = Number(s.slice(0, s.length - 2));
+  const minutes = s.slice(-2);
+  if (!Number.isFinite(hours) || hours > 23 || Number(minutes) > 59) return null;
+  const suffix = hours >= 12 ? 'PM' : 'AM';
+  const h12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${h12}:${minutes} ${suffix}`;
+}
+
 export async function GET(req: NextRequest) {
   const { data: session } = await auth.getSession();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -55,12 +67,23 @@ export async function GET(req: NextRequest) {
         summary = `${viol} violation${viol > 1 ? 's' : ''}`;
         if (oos > 0) summary += ` (${oos} out-of-service)`;
       }
+      const reportNumber = str(r, 'report_number') || '';
+      const reportState = str(r, 'report_state') || '';
       return {
+        inspectionId: str(r, 'inspection_id') || '',
         date: fmtDate(str(r, 'insp_date')),
-        report: str(r, 'report_number') || str(r, 'inspection_id') || 'Unknown',
-        state: str(r, 'report_state') || 'N/A',
+        report: reportNumber || str(r, 'inspection_id') || 'Unknown',
+        reportState,
+        reportNumber,
+        state: reportState || 'N/A',
         level: LEVELS[str(r, 'insp_level_id') || ''] || `Level ${str(r, 'insp_level_id') || '?'}`,
         summary,
+        timeStart: fmtTime(str(r, 'insp_start_time')),
+        timeEnd: fmtTime(str(r, 'insp_end_time')),
+        facility: str(r, 'insp_facility') || null,
+        shipper: str(r, 'shipper_name') || null,
+        location: str(r, 'location_desc') || null,
+        grossWeight: str(r, 'gross_comb_veh_wt') || null,
       };
     });
 
