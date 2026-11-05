@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { authClient } from '@/lib/auth/client';
 import Section from '@/components/Section';
 import InspectionDetail from '@/components/InspectionDetail';
+import FleetPanel from '@/components/FleetPanel';
 
 export interface Carrier {
   usdot: string; docketDigits: string; docket: string | null; legalName: string | null; dba: string | null;
@@ -531,6 +532,10 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
                 </table>
               </div>
             )}
+          </Section>
+
+          <Section title={`Equipment & Fleet`}>
+            <FleetPanel dot={c.usdot} />
           </Section>
 
           <Section title={`Safety Measurement System`}>
