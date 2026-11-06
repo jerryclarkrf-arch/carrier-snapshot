@@ -29,13 +29,28 @@ const empty = {
   name: '', dba: '', usdot: '', docket: '', docketPrefix: '', phone: '', city: '', zip: '', state: '',
   status: 'all', addedFrom: '', addedTo: '', contact: '', authorityOp: 'or', operation: '',
   authorityRoles: [] as string[], cargo: [] as string[], rating: [] as string[],
-  fleetSize: [] as string[], powerMin: '', powerMax: '', priorRevoked: false, pendingAuthority: false,
+  fleetSize: [] as string[], powerMin: '', powerMax: '', priorRevoked: false,
 };
 
 type FilterState = typeof empty;
 
+type GroupKey = 'identity' | 'location' | 'authority' | 'safety' | 'cargo';
+
+const GROUPS: { key: GroupKey; label: string }[] = [
+  { key: 'identity', label: 'Identity' },
+  { key: 'location', label: 'Location & Contact' },
+  { key: 'authority', label: 'Authority' },
+  { key: 'safety', label: 'Safety & Fleet' },
+  { key: 'cargo', label: 'Cargo' },
+];
+
 const inputCls = 'w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-600 outline-none';
 const labelCls = 'text-[11px] font-bold text-slate-500 uppercase tracking-wide';
+const presetCls = 'px-2.5 py-1 rounded-lg text-[11px] font-semibold text-blue-700 border border-blue-200 bg-white hover:bg-blue-50 transition-colors';
+
+function Panel({ children }: { children: React.ReactNode }) {
+  return <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/60">{children}</div>;
+}
 
 function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -72,7 +87,24 @@ export default function AdvancedSearch() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showCargo, setShowCargo] = useState(false);
+  const [openGroup, setOpenGroup] = useState<GroupKey | null>(null);
+
+  const counts: Record<GroupKey, number> = {
+    identity: [f.name, f.dba, f.usdot, f.contact].filter((v) => v.trim()).length,
+    location: [f.docket, f.docketPrefix, f.phone, f.city, f.zip, f.state, f.operation].filter((v) => v.trim()).length,
+    authority: (f.status !== 'all' ? 1 : 0) + (f.authorityRoles.length > 0 ? 1 : 0) + (f.priorRevoked ? 1 : 0),
+    safety: (f.rating.length > 0 ? 1 : 0) + (f.fleetSize.length > 0 ? 1 : 0) + (f.powerMin || f.powerMax ? 1 : 0),
+    cargo: f.cargo.length > 0 ? 1 : 0,
+  };
+  const applied = Object.values(counts).reduce((a, b) => a + b, 0) + (f.addedFrom || f.addedTo ? 1 : 0);
+
+  function preset(days: number) {
+    const to = new Date();
+    const from = new Date(to.getTime() - (days - 1) * 86400000);
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    setF((p) => ({ ...p, addedFrom: iso(from), addedTo: iso(to) }));
+  }
 
   const set = (k: keyof FilterState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }));
@@ -99,7 +131,7 @@ export default function AdvancedSearch() {
       f.name, f.dba, f.usdot, f.docket, f.docketPrefix, f.phone, f.city, f.zip, f.state,
       f.contact, f.operation, f.addedFrom, f.addedTo, f.powerMin, f.powerMax,
       f.authorityRoles.length, f.cargo.length, f.rating.length, f.fleetSize.length,
-      f.priorRevoked, f.pendingAuthority, f.status !== 'all',
+      f.priorRevoked, f.status !== 'all',
     ].some(Boolean);
     if (!anyField) { alert('Fill in at least one field or filter.'); return; }
     const dateErr = validateDates();
@@ -126,7 +158,6 @@ export default function AdvancedSearch() {
     if (f.powerMin) params.set('powerMin', f.powerMin);
     if (f.powerMax) params.set('powerMax', f.powerMax);
     if (f.priorRevoked) params.set('priorRevoked', 'true');
-    if (f.pendingAuthority) params.set('pendingAuthority', 'true');
     params.set('page', String(targetPage));
     params.set('limit', '50');
 
@@ -178,166 +209,253 @@ export default function AdvancedSearch() {
         </div>
 
         <form onSubmit={(e) => { e.preventDefault(); run(1); }} className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6">
-          {/* Identity */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="space-y-1">
-              <label className={labelCls}>Legal Name</label>
-              <input placeholder="e.g. ABC Trucking" value={f.name} onChange={set('name')} className={inputCls} />
+          {/* Authority New (date range) — always visible */}
+          <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className={`${labelCls} text-blue-800`}>Authority New (date range)</p>
+              <p className="text-[10px] font-medium text-blue-700/70">Max 1 month</p>
             </div>
-            <div className="space-y-1">
-              <label className={labelCls}>DBA Name</label>
-              <input placeholder="Doing business as" value={f.dba} onChange={set('dba')} className={inputCls} />
-            </div>
-            <div className="space-y-1">
-              <label className={labelCls}>DOT #</label>
-              <input placeholder="e.g. 3270258" inputMode="numeric" value={f.usdot} onChange={set('usdot')} className={inputCls} />
-            </div>
-            <div className="space-y-1">
-              <label className={labelCls}>Contact (Owner/Officer)</label>
-              <input placeholder="e.g. Travis Martin" value={f.contact} onChange={set('contact')} className={inputCls} />
-            </div>
-          </div>
-
-          {/* Docket + location */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="space-y-1">
-              <label className={labelCls}>Docket # + Prefix</label>
-              <div className="flex gap-2">
-                <select value={f.docketPrefix} onChange={set('docketPrefix')} className={inputCls + ' w-28 shrink-0'}>
-                  <option value="">Any</option>
-                  <option value="MC">MC</option>
-                  <option value="MX">MX</option>
-                  <option value="FF">FF</option>
-                </select>
-                <input placeholder="e.g. 1032275" inputMode="numeric" value={f.docket} onChange={set('docket')} className={inputCls} />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className={labelCls}>Phone Number</label>
-              <input placeholder="e.g. 7068323093" inputMode="numeric" value={f.phone} onChange={set('phone')} className={inputCls} />
-            </div>
-            <div className="space-y-1">
-              <label className={labelCls}>City</label>
-              <input placeholder="e.g. Atlanta" value={f.city} onChange={set('city')} className={inputCls} />
-            </div>
-            <div className="space-y-1">
-              <label className={labelCls}>ZIP Code</label>
-              <input placeholder="e.g. 30303" inputMode="numeric" value={f.zip} onChange={set('zip')} className={inputCls} />
-            </div>
-          </div>
-
-          {/* Location states, operations, power units */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="space-y-1">
-              <label className={labelCls}>State</label>
-              <select value={f.state} onChange={set('state')} className={inputCls}>
-                <option value="">All States</option>
-                {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-                <option value="CA">Canada</option>
-                <option value="MX">Mexico</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className={labelCls}>Carrier Operations</label>
-              <select value={f.operation} onChange={set('operation')} className={inputCls}>
-                <option value="">Any operation</option>
-                <option value="A">Interstate</option>
-                <option value="B">Intrastate / Hazmat</option>
-                <option value="C">Intrastate / Non-HM</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className={labelCls}>Authority Status</label>
-              <select value={f.status} onChange={set('status')} className={inputCls}>
-                <option value="all">All Authorities</option>
-                <option value="active">Active Only</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className={labelCls}>Power Units (min – max)</label>
-              <div className="flex gap-2">
-                <input placeholder="Min" inputMode="numeric" value={f.powerMin} onChange={set('powerMin')} className={inputCls} />
-                <input placeholder="Max" inputMode="numeric" value={f.powerMax} onChange={set('powerMax')} className={inputCls} />
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="date"
+                aria-label="Authority new from"
+                value={f.addedFrom}
+                onChange={set('addedFrom')}
+                className={inputCls + ' w-44'}
+              />
+              <span className="text-sm text-slate-400">to</span>
+              <input
+                type="date"
+                aria-label="Authority new to"
+                value={f.addedTo}
+                onChange={set('addedTo')}
+                className={inputCls + ' w-44'}
+              />
+              <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
+                <button type="button" onClick={() => preset(7)} className={presetCls}>Last 7 days</button>
+                <button type="button" onClick={() => preset(30)} className={presetCls}>Last 30 days</button>
+                {(f.addedFrom || f.addedTo) && (
+                  <button
+                    type="button"
+                    onClick={() => setF((p) => ({ ...p, addedFrom: '', addedTo: '' }))}
+                    className={presetCls}
+                  >
+                    Clear dates
+                  </button>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Company authority */}
-          <Group title="Company Authority (Active / Pending)" hint="Roles present on the record">
-            <div className="flex flex-wrap items-center gap-2">
-              {['MC', 'MX', 'FF'].map((r) => (
-                <Chip key={r} on={f.authorityRoles.includes(r)} onClick={() => toggleIn('authorityRoles')(r)}>
-                  {r === 'MC' ? 'Carrier' : r === 'MX' ? 'Broker' : 'Freight Forwarder'}
-                </Chip>
-              ))}
-              <span className="mx-1 text-xs text-slate-400">Match:</span>
-              <label className="flex items-center gap-1 text-xs text-slate-600">
-                <input type="radio" name="authorityOp" checked={f.authorityOp === 'or'} onChange={() => setF((p) => ({ ...p, authorityOp: 'or' }))} /> Any (Or)
-              </label>
-              <label className="flex items-center gap-1 text-xs text-slate-600">
-                <input type="radio" name="authorityOp" checked={f.authorityOp === 'and'} onChange={() => setF((p) => ({ ...p, authorityOp: 'and' }))} /> All (And)
-              </label>
+          {/* Collapsed filter groups */}
+          <div className="space-y-3 border-t border-slate-100 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className={labelCls}>More filters</p>
+              <p className="text-[11px] text-slate-500">
+                {applied} applied
+                {applied > 0 && (
+                  <button type="button" onClick={clear} className="ml-2 font-semibold text-blue-700 hover:underline">
+                    Reset all
+                  </button>
+                )}
+              </p>
             </div>
-          </Group>
 
-          {/* Flags row */}
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={f.priorRevoked} onChange={(e) => setF((p) => ({ ...p, priorRevoked: e.target.checked }))} />
-              Prior Revocation on record
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={f.pendingAuthority} onChange={(e) => setF((p) => ({ ...p, pendingAuthority: e.target.checked }))} />
-              Authority Pending
-            </label>
-          </div>
-
-          {/* Safety rating */}
-          <Group title="Safety Rating">
-            <div className="flex flex-wrap gap-2">
-              {(['Satisfactory', 'Conditional', 'Unsatisfactory'] as const).map((r) => (
-                <Chip key={r} on={f.rating.includes(r)} onClick={() => toggleIn('rating')(r)}>{r}</Chip>
-              ))}
+            <div className="flex flex-wrap gap-1.5">
+              {GROUPS.map((g) => {
+                const isOpen = openGroup === g.key;
+                const n = counts[g.key];
+                return (
+                  <button
+                    key={g.key}
+                    type="button"
+                    onClick={() => setOpenGroup(isOpen ? null : g.key)}
+                    aria-expanded={isOpen}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                      isOpen
+                        ? 'bg-blue-600 border-blue-600 text-white'
+                        : n > 0
+                          ? 'bg-blue-50 border-blue-200 text-blue-800'
+                          : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {g.label}
+                    {n > 0 && (
+                      <span
+                        className={`min-w-4 h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center ${
+                          isOpen ? 'bg-white/25 text-white' : 'bg-blue-600 text-white'
+                        }`}
+                      >
+                        {n}
+                      </span>
+                    )}
+                    <span className={`text-[9px] transition-transform ${isOpen ? 'rotate-180' : ''}`}>▾</span>
+                  </button>
+                );
+              })}
             </div>
-          </Group>
 
-          {/* Fleet size */}
-          <Group title="Fleet Size (power units buckets)">
-            <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-13 gap-1.5">
-              {FLEET_BUCKETS.map(([letter, range]) => (
-                <Chip key={letter} on={f.fleetSize.includes(letter)} onClick={() => toggleIn('fleetSize')(letter)}>
-                  {letter} · {range}
-                </Chip>
-              ))}
-            </div>
-          </Group>
-
-          {/* Cargo */}
-          <Group title="Cargo Transported" hint="Matches any selected cargo">
-            <button
-              type="button"
-              onClick={() => setShowCargo((s) => !s)}
-              className="text-xs font-semibold text-blue-700 hover:underline"
-            >
-              {showCargo ? 'Hide cargo options' : `Show cargo options (${f.cargo.length} selected)`}
-            </button>
-            {showCargo && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-72 overflow-y-auto border border-slate-200 rounded-lg p-3">
-                {CARGO_OPTIONS.map((c) => (
-                  <Chip key={c} on={f.cargo.includes(c)} onClick={() => toggleIn('cargo')(c)}>{c}</Chip>
-                ))}
-              </div>
+            {openGroup === 'identity' && (
+              <Panel>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="space-y-1">
+                    <label className={labelCls}>Legal Name</label>
+                    <input placeholder="e.g. ABC Trucking" value={f.name} onChange={set('name')} className={inputCls} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelCls}>DBA Name</label>
+                    <input placeholder="Doing business as" value={f.dba} onChange={set('dba')} className={inputCls} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelCls}>DOT #</label>
+                    <input placeholder="e.g. 3270258" inputMode="numeric" value={f.usdot} onChange={set('usdot')} className={inputCls} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelCls}>Contact (Owner/Officer)</label>
+                    <input placeholder="e.g. Travis Martin" value={f.contact} onChange={set('contact')} className={inputCls} />
+                  </div>
+                </div>
+              </Panel>
             )}
-          </Group>
 
-          {/* Added date */}
-          <Group title="Authority New (date range)" hint="Max 1 month">
-            <div className="flex flex-wrap gap-3 text-sm items-center">
-              <input type="date" value={f.addedFrom} onChange={set('addedFrom')} className={inputCls + ' w-44'} />
-              <span className="text-slate-400">to</span>
-              <input type="date" value={f.addedTo} onChange={set('addedTo')} className={inputCls + ' w-44'} />
-            </div>
-          </Group>
+            {openGroup === 'location' && (
+              <Panel>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <label className={labelCls}>Docket # + Prefix</label>
+                    <div className="flex gap-2">
+                      <select value={f.docketPrefix} onChange={set('docketPrefix')} className={inputCls + ' w-28 shrink-0'}>
+                        <option value="">Any</option>
+                        <option value="MC">MC</option>
+                        <option value="MX">MX</option>
+                        <option value="FF">FF</option>
+                      </select>
+                      <input placeholder="e.g. 1032275" inputMode="numeric" value={f.docket} onChange={set('docket')} className={inputCls} />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelCls}>Phone Number</label>
+                    <input placeholder="e.g. 7068323093" inputMode="numeric" value={f.phone} onChange={set('phone')} className={inputCls} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelCls}>City</label>
+                    <input placeholder="e.g. Atlanta" value={f.city} onChange={set('city')} className={inputCls} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelCls}>ZIP Code</label>
+                    <input placeholder="e.g. 30303" inputMode="numeric" value={f.zip} onChange={set('zip')} className={inputCls} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelCls}>State</label>
+                    <select value={f.state} onChange={set('state')} className={inputCls}>
+                      <option value="">All States</option>
+                      {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      <option value="CA">Canada</option>
+                      <option value="MX">Mexico</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelCls}>Carrier Operations</label>
+                    <select value={f.operation} onChange={set('operation')} className={inputCls}>
+                      <option value="">Any operation</option>
+                      <option value="A">Interstate</option>
+                      <option value="B">Intrastate / Hazmat</option>
+                      <option value="C">Intrastate / Non-HM</option>
+                    </select>
+                  </div>
+                </div>
+              </Panel>
+            )}
+
+            {openGroup === 'authority' && (
+              <Panel>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <label className={labelCls}>Authority Status</label>
+                      <select value={f.status} onChange={set('status')} className={inputCls}>
+                        <option value="all">All statuses</option>
+                        <option value="active">Active authority</option>
+                        <option value="inactive">Inactive authority</option>
+                        <option value="pending">Pending authority</option>
+                        <option value="none">No MC authority</option>
+                      </select>
+                      <p className="text-[10px] text-slate-400">Dates no longer imply &quot;active only&quot;.</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className={labelCls}>Prior revocation</label>
+                      <label className="flex items-center gap-2 h-[46px] text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={f.priorRevoked}
+                          onChange={(e) => setF((p) => ({ ...p, priorRevoked: e.target.checked }))}
+                        />
+                        Flag on record
+                      </label>
+                    </div>
+                  </div>
+
+                  <Group title="Company Authority" hint="Roles present on the record">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {['MC', 'MX', 'FF'].map((r) => (
+                        <Chip key={r} on={f.authorityRoles.includes(r)} onClick={() => toggleIn('authorityRoles')(r)}>
+                          {r === 'MC' ? 'Carrier' : r === 'MX' ? 'Broker' : 'Freight Forwarder'}
+                        </Chip>
+                      ))}
+                      <span className="mx-1 text-xs text-slate-400">Match:</span>
+                      <label className="flex items-center gap-1 text-xs text-slate-600">
+                        <input type="radio" name="authorityOp" checked={f.authorityOp === 'or'} onChange={() => setF((p) => ({ ...p, authorityOp: 'or' }))} /> Any (Or)
+                      </label>
+                      <label className="flex items-center gap-1 text-xs text-slate-600">
+                        <input type="radio" name="authorityOp" checked={f.authorityOp === 'and'} onChange={() => setF((p) => ({ ...p, authorityOp: 'and' }))} /> All (And)
+                      </label>
+                    </div>
+                  </Group>
+                </div>
+              </Panel>
+            )}
+
+            {openGroup === 'safety' && (
+              <Panel>
+                <div className="space-y-4">
+                  <Group title="Safety Rating">
+                    <div className="flex flex-wrap gap-2">
+                      {(['Satisfactory', 'Conditional', 'Unsatisfactory'] as const).map((r) => (
+                        <Chip key={r} on={f.rating.includes(r)} onClick={() => toggleIn('rating')(r)}>{r}</Chip>
+                      ))}
+                    </div>
+                  </Group>
+
+                  <Group title="Power Units (min – max)">
+                    <div className="flex flex-wrap gap-2 max-w-md">
+                      <input placeholder="Min" inputMode="numeric" value={f.powerMin} onChange={set('powerMin')} className={inputCls} />
+                      <input placeholder="Max" inputMode="numeric" value={f.powerMax} onChange={set('powerMax')} className={inputCls} />
+                    </div>
+                  </Group>
+
+                  <Group title="Fleet Size (power units buckets)">
+                    <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-13 gap-1.5">
+                      {FLEET_BUCKETS.map(([letter, range]) => (
+                        <Chip key={letter} on={f.fleetSize.includes(letter)} onClick={() => toggleIn('fleetSize')(letter)}>
+                          {letter} · {range}
+                        </Chip>
+                      ))}
+                    </div>
+                  </Group>
+                </div>
+              </Panel>
+            )}
+
+            {openGroup === 'cargo' && (
+              <Panel>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-72 overflow-y-auto">
+                  {CARGO_OPTIONS.map((c) => (
+                    <Chip key={c} on={f.cargo.includes(c)} onClick={() => toggleIn('cargo')(c)}>{c}</Chip>
+                  ))}
+                </div>
+              </Panel>
+            )}
+          </div>
 
           {error && (
             <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg px-4 py-3">

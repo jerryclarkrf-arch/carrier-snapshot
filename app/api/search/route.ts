@@ -247,11 +247,22 @@ export async function GET(req: NextRequest) {
   } else if (state) {
     wheres.push(`phy_state='${esc(state)}'`);
   }
-  if (status === 'active') wheres.push(`docket1_status_code='A'`);
+  // Authority status is a filter of its own: applying a date range must never
+  // imply "active only" (that used to silently hide inactive and DOT-only carriers).
+  if (status === 'active') {
+    wheres.push(`docket1_status_code='A'`);
+  } else if (status === 'inactive') {
+    wheres.push(`docket1_status_code='I'`);
+  } else if (status === 'pending') {
+    wheres.push(`(docket1_status_code='P' OR docket2_status_code='P' OR docket3_status_code='P')`);
+  } else if (status === 'none') {
+    wheres.push(
+      `(docket1_status_code IS NULL AND docket2_status_code IS NULL AND docket3_status_code IS NULL)`
+    );
+  }
   if (hasDates) {
     if (addedFrom) wheres.push(`add_date>='${addedFrom.replace(/-/g, '')}'`);
     if (addedTo) wheres.push(`add_date<='${addedTo.replace(/-/g, '')}'`);
-    wheres.push(`docket1_status_code='A'`);
   }
 
   // BrokerSnapshot-style advanced filters
