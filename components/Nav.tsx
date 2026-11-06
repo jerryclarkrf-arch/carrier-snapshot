@@ -32,6 +32,13 @@ export default function Nav() {
             {link('/', 'Simple Search')}
             {link('/advanced', 'Advanced Search')}
           </nav>
+          <a
+            href="/tracking"
+            className="hidden sm:inline-flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+            title="Load tracking runs as a separate app"
+          >
+            Load Tracking ↗
+          </a>
           <AuthLinks />
         </div>
       </div>
