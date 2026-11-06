@@ -203,12 +203,36 @@ export default function AdvancedSearch() {
     <main className="min-h-screen bg-slate-100">
       <Nav />
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900">Advanced Search</h1>
-          <p className="text-sm text-slate-500 mt-1">Search the FMCSA census with precise filters.</p>
-        </div>
+        {/* Hero */}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-white to-blue-50 px-6 py-8 shadow-sm">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+                Live FMCSA data
+              </span>
+              <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">Advanced Search</h1>
+              <p className="mt-2 max-w-xl text-sm text-slate-600">
+                Filter the FMCSA census by authority date, identity, location, authority type, safety, fleet size and
+                cargo — combine as many as you need.
+              </p>
+            </div>
+            <dl className="grid grid-cols-3 gap-3 text-center sm:gap-4">
+              {[
+                ['26', 'Fleet buckets'],
+                ['29', 'Cargo types'],
+                ['1 mo', 'Max date range'],
+              ].map(([value, label]) => (
+                <div key={label} className="rounded-xl border border-slate-200 bg-white/80 px-3 py-2">
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+                  <dd className="text-sm font-extrabold text-slate-800">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </section>
 
-        <form onSubmit={(e) => { e.preventDefault(); run(1); }} className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6">
+        <form onSubmit={(e) => { e.preventDefault(); run(1); }} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-5 sm:p-6">
           {/* Authority New (date range) — always visible */}
           <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -458,65 +482,133 @@ export default function AdvancedSearch() {
           </div>
 
           {error && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg px-4 py-3">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
             </div>
           )}
 
-          <div className="flex flex-wrap gap-3">
-            <button type="submit" disabled={loading}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-2.5 rounded-lg text-sm disabled:opacity-50 transition-colors">
+          <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+            <button
+              type="submit"
+              disabled={loading}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-7 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+            >
               {loading ? 'Searching…' : 'Search'}
             </button>
-            <button type="button" onClick={clear}
-              className="border border-slate-300 bg-white px-6 py-2.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+            <button
+              type="button"
+              onClick={clear}
+              className="rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            >
               Reset
             </button>
+            <Link href="/" className="text-xs font-semibold text-blue-700 hover:underline sm:ml-auto">
+              ← Simple search
+            </Link>
+          </div>
+        </form>
+
+        {/* Results header */}
+        {searched && !loading && !error && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">
+                {total.toLocaleString()} {total === 1 ? 'carrier' : 'carriers'} found
+              </p>
+              <p className="text-xs text-slate-500">
+                {applied} filter{applied === 1 ? '' : 's'} applied
+                {pages > 1 && <> · page {page} of {pages}</>}
+              </p>
+            </div>
             {results.length > 0 &&
               (loggedIn ? (
-                <button type="button" onClick={exportCSV}
-                  className="ml-auto text-sm font-semibold text-blue-700 border border-blue-300 bg-white rounded-lg px-4 py-2.5 hover:bg-blue-50 transition-colors">
+                <button
+                  type="button"
+                  onClick={exportCSV}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50"
+                >
                   Export CSV
                 </button>
               ) : (
-                <Link href="/auth/sign-up"
-                  className="ml-auto text-sm font-semibold text-blue-700 border border-blue-300 bg-white rounded-lg px-4 py-2.5 hover:bg-blue-50 transition-colors">
+                <Link
+                  href="/auth/sign-up"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50"
+                >
                   Sign in to export
                 </Link>
               ))}
           </div>
-        </form>
+        )}
 
-        {searched && !loading && !error && (
-          <div className="flex items-center justify-between text-sm text-slate-600">
-            <span className="font-semibold text-slate-800">
-              {total.toLocaleString()} {total === 1 ? 'result' : 'results'} found
-            </span>
-            {pages > 1 && <span className="text-xs text-slate-400">Page {page} of {pages}</span>}
+        {/* Loading skeletons */}
+        {loading && (
+          <div className="space-y-4" aria-busy="true" aria-live="polite">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="w-full space-y-2">
+                    <div className="h-4 w-1/3 rounded bg-slate-200 animate-pulse" />
+                    <div className="h-3 w-1/2 rounded bg-slate-100 animate-pulse" />
+                  </div>
+                  <div className="h-9 w-24 shrink-0 rounded-lg bg-slate-100 animate-pulse" />
+                </div>
+                <div className="mt-4 h-3 w-2/3 rounded bg-slate-100 animate-pulse" />
+              </div>
+            ))}
           </div>
         )}
 
-        <div className="space-y-4">
-          {results.map((c) => <CarrierCard key={c.usdot} carrier={c} />)}
-        </div>
+        {/* Results */}
+        {!loading && (
+          <div className="space-y-4">
+            {results.map((c) => <CarrierCard key={c.usdot} carrier={c} />)}
+          </div>
+        )}
 
+        {/* Empty state */}
         {searched && !loading && !error && results.length === 0 && (
-          <div className="border border-dashed border-slate-300 rounded-xl p-12 text-center text-sm text-slate-500 bg-white">
-            No carriers matched those criteria.
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
+            <p className="text-sm font-semibold text-slate-700">No carriers matched those filters</p>
+            <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">
+              Try widening the date range, removing a filter group, or looking the carrier up by name or
+              USDOT in simple search.
+            </p>
+            <Link
+              href="/"
+              className="mt-4 inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            >
+              Go to simple search
+            </Link>
           </div>
         )}
 
-        {pages > 1 && (
-          <div className="flex items-center justify-center gap-3 pt-2">
-            <button type="button" onClick={() => run(page - 1)} disabled={page <= 1 || loading}
-              className="px-5 py-2.5 text-sm font-semibold text-slate-700 border border-slate-300 bg-white rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors">
-              ← Prev
-            </button>
-            <span className="text-sm text-slate-500">Page <strong>{page}</strong> of {pages}</span>
-            <button type="button" onClick={() => run(page + 1)} disabled={page >= pages || loading}
-              className="px-5 py-2.5 text-sm font-semibold text-slate-700 border border-slate-300 bg-white rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors">
-              Next →
-            </button>
+        {/* Pagination */}
+        {pages > 1 && !loading && (
+          <div className="flex flex-col items-center justify-between gap-3 pt-2 sm:flex-row">
+            <p className="text-xs text-slate-500">
+              Showing {(page - 1) * 50 + 1}–{Math.min(page * 50, total)} of {total.toLocaleString()}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => run(page - 1)}
+                disabled={page <= 1 || loading}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40"
+              >
+                ← Prev
+              </button>
+              <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
+                {page} / {pages}
+              </span>
+              <button
+                type="button"
+                onClick={() => run(page + 1)}
+                disabled={page >= pages || loading}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40"
+              >
+                Next →
+              </button>
+            </div>
           </div>
         )}
       </div>
