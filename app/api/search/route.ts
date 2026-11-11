@@ -1,11 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth/server';
+import { sodaJson, asSodaError } from '@/lib/soda';
+import { fetchSaferSnapshot, searchSaferByName, type SaferCarrier } from '@/lib/safer';
 
 export const dynamic = 'force-dynamic';
+// The census feed can be slow while it is throttled; the retry loop needs room
+// instead of being killed by the platform's default function timeout.
+export const maxDuration = 30;
 
 const CENSUS = 'https://data.transportation.gov/resource/az4n-8mr2.json';
-const TTL = 10 * 60 * 1000;
-const cache = new Map<string, { ts: number; data: unknown }>();
+const CENSUS_TTL = 10 * 60 * 1000;
+// Counts move slowly and are the most expensive query we issue, so keep them longer.
+const COUNT_TTL = 30 * 60 * 1000;
+const MAX_CACHE = 400;
+// The census feed is usually either fast or immediately 429s, so one attempt
+// keeps the fallback responsive. The browser retries once on top of this.
+const SODA_OPTS = { attempts: 1, timeoutMs: 7000 };
+const cache = new Map<string, { ts: number; ttl: number; data: unknown }>();
+
+type SearchOutcome = {
+  payload?: Record<string, unknown>;
+  error?: { message: string; status: number; retryable: boolean };
+};
+
+const inflight = new Map<string, Promise<SearchOutcome>>();
 
 const MASK_PHONE = '(xxx) xxx-xxxx';
 const MASK_EMAIL = 'xxx@xxx.xxx';
@@ -62,9 +80,17 @@ function maskCarriers(results: CarrierRecord[]): CarrierRecord[] {
 
 function cached(key: string) {
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.ts < TTL) return hit.data;
-  cache.delete(key);
+  if (hit && Date.now() - hit.ts < hit.ttl) return hit.data;
+  if (hit) cache.delete(key);
   return null;
+}
+
+function remember(key: string, data: unknown, ttl = CENSUS_TTL) {
+  if (cache.size >= MAX_CACHE) {
+    const oldest = cache.keys().next().value;
+    if (oldest) cache.delete(oldest);
+  }
+  cache.set(key, { ts: Date.now(), ttl, data });
 }
 
 const STATUS: Record<string, string> = { A: 'Active', I: 'Inactive', P: 'Pending' };
@@ -134,6 +160,12 @@ export async function GET(req: NextRequest) {
 
   // Universal (simple page)
   const q = (p.get('q') || '').trim();
+  // "Exact" means a plain USDOT / MC-FF-MX number: it maps to a single equality
+  // lookup, so we can skip the expensive count(*) query and fall back to SAFER.
+  const qStripped = q.replace(/[\s-]/g, '');
+  const qMcMatch = qStripped.match(/^(MC|FF|MX)(\d+)$/i);
+  const qDigits = qMcMatch ? qMcMatch[2] : qStripped.replace(/\D/g, '');
+  const qIsExact = !!q && (/^\d{1,9}$/.test(qStripped) || !!qMcMatch);
   // Discrete (advanced page)
   const fName = (p.get('name') || '').trim();
   const fDba = (p.get('dba') || '').trim();
@@ -229,14 +261,21 @@ export async function GET(req: NextRequest) {
     if (fCity) wheres.push(`upper(phy_city) like '%${esc(fCity.toUpperCase())}%'`);
     if (fZip) wheres.push(`phy_zip like '%${esc(fZip)}%'`);
   } else if (q) {
-    const stripped = q.replace(/[\s-]/g, '');
-    const mcMatch = stripped.match(/^(MC|FF|MX)(\d+)$/i);
-    const digits = mcMatch ? mcMatch[2] : stripped.replace(/\D/g, '');
-    const isNumeric = /^\d+$/.test(stripped) || !!mcMatch;
-    if (isNumeric && digits) {
-      wheres.push(`(dot_number='${esc(digits)}' OR docket1='${esc(digits)}' OR phone like '%${esc(digits)}%')`);
+    if ((/^\d+$/.test(qStripped) || qMcMatch) && qDigits) {
+      // Docket numbers can sit in any of the three slots. Phone numbers are
+      // stored as ten raw digits, so only match them for phone-shaped input:
+      // the old `phone like '%…%'` ran a full scan on every USDOT lookup and
+      // was a major contributor to the throttling.
+      const conditions = [
+        `dot_number='${esc(qDigits)}'`,
+        ...['1', '2', '3'].map((slot) => `docket${slot}='${esc(qDigits)}'`),
+      ];
+      if (qDigits.length >= 10) conditions.push(`phone='${esc(qDigits.slice(-10))}'`);
+      wheres.push(`(${conditions.join(' OR ')})`);
     } else {
-      wheres.push(`upper(legal_name) like '%${esc(q.toUpperCase())}%'`);
+      const term = esc(q.toUpperCase());
+      wheres.push(`(upper(legal_name) like '%${term}%' OR upper(dba_name) like '%${term}%')`);
+      dbaUsed = true;
     }
   }
 
@@ -297,62 +336,213 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const order = hasDates ? `&$order=${encodeURIComponent('add_date DESC')}` : '';
-  const dotFetch = async (where: string) => {
-    const rowsUrl = `${CENSUS}?$limit=${limit}&$offset=${offset}&$where=${encodeURIComponent(where)}${order}`;
-    const countUrl = `${CENSUS}?$select=count(*)&$where=${encodeURIComponent(where)}`;
-    const headers = { 'X-App-Token': process.env.DOT_APP_TOKEN || '' };
-    const [rowsRes, countRes] = await Promise.all([fetch(rowsUrl, { headers }), fetch(countUrl, { headers })]);
-    const [rows, count] = await Promise.all([rowsRes.json(), countRes.json()]);
-    return { rowsRes, countRes, rows, count };
+  const censusWhere = wheres.join(' AND ');
+
+  const countFor = async (where: string): Promise<number | null> => {
+    const key = `count:${where}`;
+    const hit = cached(key);
+    if (typeof hit === 'number') return hit;
+    try {
+      const rows = await sodaJson<Row[]>(
+        CENSUS,
+        {
+          $select: 'count(*)',
+          ...(where ? { $where: where } : {}),
+        },
+        SODA_OPTS
+      );
+      const raw = Array.isArray(rows) && rows[0] ? rows[0].count : undefined;
+      const total = raw === undefined ? null : Number(raw) || 0;
+      if (total !== null) remember(key, total, COUNT_TTL);
+      return total;
+    } catch {
+      // A missing total must never fail the search itself.
+      return null;
+    }
   };
 
-  try {
-    let { rowsRes, rows, count } = await dotFetch(wheres.join(' AND '));
+  const fetchRows = (where: string) =>
+    sodaJson<Row[]>(
+      CENSUS,
+      {
+        $limit: String(limit),
+        $offset: String(offset),
+        ...(where ? { $where: where } : {}),
+        ...(hasDates ? { $order: 'add_date DESC' } : {}),
+      },
+      SODA_OPTS
+    );
 
-    // Fallback: if dba_name column doesn't exist in this dataset, retry without it
-    if ((!rowsRes.ok || !Array.isArray(rows)) && dbaUsed) {
-      const retryWheres = wheres.filter((w) => !w.includes('dba_name'));
-      ({ rowsRes, rows, count } = await dotFetch(retryWheres.join(' AND ')));
-      console.warn('dba_name column not supported — DBA filter skipped');
-    }
-
-    if (!rowsRes.ok || !Array.isArray(rows)) {
-      return NextResponse.json({ error: 'DOT search failed', detail: rows }, { status: 502 });
-    }
-
-    let results = rows.map(mapCarrier);
-    let total = 0;
-    if (Array.isArray(count) && count[0] && count[0].count !== undefined) {
-      total = Number(count[0].count) || 0;
-    }
-
-    if (q) {
-      const stripped = q.replace(/[\s-]/g, '');
-      const digits = stripped.replace(/\D/g, '');
-      if (/^\d+$/.test(stripped) || /^(MC|FF|MX)\d+$/i.test(stripped)) {
-        const exact = results.filter((c) => c.usdot === digits || c.docketDigits === digits);
-        if (exact.length > 0) {
-          results = exact;
-          total = exact.length;
-        }
+  const fetchRowsWithDbaFallback = async (where: string): Promise<Row[]> => {
+    try {
+      return await fetchRows(where);
+    } catch (e) {
+      const err = asSodaError(e);
+      // Only a 400 can mean "this column does not exist". Retrying on a 429
+      // just doubles the throttling that caused it.
+      if (err.status === 400 && dbaUsed) {
+        console.warn('dba_name column not supported — DBA filter skipped');
+        return fetchRows(wheres.filter((w) => !w.includes('dba_name')).join(' AND '));
       }
+      throw e;
+    }
+  };
+
+  const runSearch = async (): Promise<SearchOutcome> => {
+    const [rows, count] = await Promise.all([
+      fetchRowsWithDbaFallback(censusWhere),
+      qIsExact ? Promise.resolve(null) : countFor(censusWhere),
+    ]);
+    if (!Array.isArray(rows)) {
+      throw new Error('The FMCSA census feed returned an unexpected response.');
     }
 
-    const payload = {
-      results,
+    const results = rows.map(mapCarrier);
+    // Exact lookups return only equality matches, so the row count is the total
+    // and the count(*) request (the most expensive query) can be skipped. When
+    // the count alone is throttled we still show the page we do have.
+    const total = qIsExact
+      ? results.length
+      : typeof count === 'number'
+        ? count
+        : results.length;
+
+    const payload: Record<string, unknown> = {
+      results: loggedIn ? results : maskCarriers(results),
       total,
       page,
       limit,
       pages: Math.max(1, Math.ceil(total / limit)),
       cached: false,
+      source: 'census',
     };
-    if (!loggedIn) {
-      payload.results = maskCarriers(results);
+    remember(cacheKey, payload);
+    return { payload };
+  };
+
+  /**
+   * SAFER keeps the most common searches usable while the census feed is
+   * throttled. Advanced filters cannot be honoured there, so only the simple
+   * page falls back.
+   */
+  const saferFallback = async (): Promise<SearchOutcome | null> => {
+    if (qIsExact && qDigits) {
+      // "MC123" can only be a docket number, but a bare number can be either a
+      // USDOT or an MC number, so try USDOT first and docket second.
+      const lookups = [await fetchSaferSnapshot(qDigits, qMcMatch ? 'MC_MX' : 'USDOT')];
+      if (!qMcMatch && !lookups[0]?.carrier) {
+        lookups.push(await fetchSaferSnapshot(qDigits, 'MC_MX'));
+      }
+
+      const seen = new Set<string>();
+      const carriers: SaferCarrier[] = [];
+      for (const lookup of lookups) {
+        const carrier = lookup?.carrier;
+        if (!carrier || seen.has(carrier.usdot)) continue;
+        seen.add(carrier.usdot);
+        carriers.push(carrier);
+      }
+
+      if (carriers.length > 0) {
+        const results = carriers as unknown as CarrierRecord[];
+        const payload = {
+          results: loggedIn ? results : maskCarriers(results),
+          total: results.length,
+          page: 1,
+          limit,
+          pages: 1,
+          cached: false,
+          source: 'safer',
+          notice: 'The FMCSA census feed is busy — showing limited data from FMCSA SAFER.',
+        };
+        remember(cacheKey, payload, 5 * 60 * 1000);
+        return { payload };
+      }
+      if (lookups.some((lookup) => lookup?.inactive)) {
+        return {
+          payload: {
+            results: [],
+            total: 0,
+            page: 1,
+            limit,
+            pages: 1,
+            cached: false,
+            source: 'safer',
+            notice: `USDOT/MC ${qDigits} is marked INACTIVE in FMCSA SAFER.`,
+          },
+        };
+      }
     }
-    cache.set(cacheKey, { ts: Date.now(), data: payload });
-    return NextResponse.json(payload);
-  } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+
+    if (q && !qIsExact && !hasDiscrete) {
+      const found = await searchSaferByName(q, limit);
+      if (found && found.results.length > 0) {
+        const results = found.results as unknown as CarrierRecord[];
+        const payload = {
+          results: loggedIn ? results : maskCarriers(results),
+          total: found.total,
+          page: 1,
+          limit,
+          pages: 1,
+          cached: false,
+          source: 'safer',
+          notice: found.relaxed
+            ? `The FMCSA census feed is busy — FMCSA SAFER has no exact match, so these are matches for "${found.relaxed}".`
+            : found.capped
+              ? `The FMCSA census feed is busy — showing the first ${limit} name matches from FMCSA SAFER (limited data).`
+              : 'The FMCSA census feed is busy — showing matches from FMCSA SAFER (limited data).',
+        };
+        remember(cacheKey, payload, 5 * 60 * 1000);
+        return { payload };
+      }
+    }
+
+    return null;
+  };
+
+  const run = async (): Promise<SearchOutcome> => {
+    try {
+      return await runSearch();
+    } catch (e) {
+      const err = asSodaError(e);
+      console.error('[api/search] census lookup failed', {
+        status: err.status,
+        retryable: err.retryable,
+        requestId: err.requestId,
+        where: censusWhere,
+      });
+      if (err.retryable) {
+        const fromSafer = await saferFallback();
+        if (fromSafer) return fromSafer;
+      }
+      return {
+        error: {
+          message: err.retryable
+            ? 'The FMCSA census feed is busy right now. Please retry in a few seconds.'
+            : 'DOT search failed.',
+          status: err.retryable ? 503 : 502,
+          retryable: err.retryable,
+        },
+      };
+    }
+  };
+
+  // Coalesce identical concurrent searches so a double-click (or two users
+  // searching the same number) only hits the throttled feed once.
+  let pending = inflight.get(cacheKey);
+  if (!pending) {
+    pending = run().finally(() => inflight.delete(cacheKey));
+    inflight.set(cacheKey, pending);
   }
+  const outcome = await pending;
+
+  if (outcome.payload) return NextResponse.json(outcome.payload);
+
+  const failure = outcome.error ?? { message: 'DOT search failed.', status: 502, retryable: false };
+  const response = NextResponse.json(
+    { error: failure.message, retryable: failure.retryable, detail: 'FMCSA census feed unavailable' },
+    { status: failure.status }
+  );
+  if (failure.retryable) response.headers.set('Retry-After', '5');
+  return response;
 }

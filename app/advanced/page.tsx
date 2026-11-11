@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Nav from '@/components/Nav';
 import CarrierCard, { Carrier } from '@/components/CarrierCard';
 import { authClient } from '@/lib/auth/client';
+import { isRetryable, searchWithRetry } from '@/lib/search-client';
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
 
@@ -87,6 +88,8 @@ export default function AdvancedSearch() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [canRetry, setCanRetry] = useState(false);
   const [openGroup, setOpenGroup] = useState<GroupKey | null>(null);
 
   const counts: Record<GroupKey, number> = {
@@ -140,6 +143,8 @@ export default function AdvancedSearch() {
     setLoading(true);
     setSearched(true);
     setError(null);
+    setNotice(null);
+    setCanRetry(false);
 
     const params = new URLSearchParams();
     (['name', 'dba', 'usdot', 'phone', 'city', 'zip', 'contact'] as const).forEach((k) => f[k] && params.set(k, f[k]));
@@ -162,17 +167,18 @@ export default function AdvancedSearch() {
     params.set('limit', '50');
 
     try {
-      const res = await fetch('/api/search?' + params.toString());
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Search failed');
+      const json = await searchWithRetry(params);
       setResults(json.results || []);
       setTotal(json.total || 0);
       setPage(json.page || 1);
       setPages(json.pages || 0);
+      setNotice(json.notice || null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Search failed');
+      setCanRetry(isRetryable(e));
       setResults([]);
       setTotal(0);
+      setPages(0);
     } finally {
       setLoading(false);
     }
@@ -186,6 +192,8 @@ export default function AdvancedSearch() {
     setPages(0);
     setSearched(false);
     setError(null);
+    setNotice(null);
+    setCanRetry(false);
   }
 
   function exportCSV() {
@@ -482,8 +490,24 @@ export default function AdvancedSearch() {
           </div>
 
           {error && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {error}
+            <div className="flex flex-col gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 sm:flex-row sm:items-center sm:justify-between">
+              <p>{error}</p>
+              {canRetry && (
+                <button
+                  type="button"
+                  onClick={() => run(page)}
+                  disabled={loading}
+                  className="shrink-0 self-start rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100 disabled:opacity-50 sm:self-auto"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+
+          {notice && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {notice}
             </div>
           )}
 
