@@ -13,9 +13,9 @@ const CENSUS_TTL = 10 * 60 * 1000;
 // Counts move slowly and are the most expensive query we issue, so keep them longer.
 const COUNT_TTL = 30 * 60 * 1000;
 const MAX_CACHE = 400;
-// The census feed is usually either fast or immediately 429s, so one attempt
-// keeps the fallback responsive. The browser retries once on top of this.
-const SODA_OPTS = { attempts: 1, timeoutMs: 7000 };
+// The census feed is usually either fast (<1s) or immediately 429s/hangs, so a
+// short timeout keeps the SAFER fallback responsive. The browser retries once.
+const SODA_OPTS = { attempts: 1, timeoutMs: 5000 };
 const cache = new Map<string, { ts: number; ttl: number; data: unknown }>();
 
 type SearchOutcome = {
