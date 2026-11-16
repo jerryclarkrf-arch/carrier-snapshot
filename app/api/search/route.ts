@@ -239,6 +239,7 @@ export async function GET(req: NextRequest) {
 
   const wheres: string[] = [];
   let dbaUsed = false;
+  let fullText: string | null = null;
 
   if (hasDiscrete) {
     if (fUsdot) wheres.push(`dot_number='${esc(fUsdot)}'`);
@@ -275,9 +276,10 @@ export async function GET(req: NextRequest) {
       if (qDigits.length >= 10) conditions.push(`phone='${esc(qDigits.slice(-10))}'`);
       wheres.push(`(${conditions.join(' OR ')})`);
     } else {
-      const term = esc(q.toUpperCase());
-      wheres.push(`(upper(legal_name) like '%${term}%' OR upper(dba_name) like '%${term}%')`);
-      dbaUsed = true;
+      // SoQL full-text search is index-backed (~0.4s). A leading-wildcard LIKE
+      // scan over the federated census takes 5s+ and times out, which is what
+      // used to push every name search onto the SAFER fallback.
+      fullText = q;
     }
   }
 
@@ -341,7 +343,7 @@ export async function GET(req: NextRequest) {
   const censusWhere = wheres.join(' AND ');
 
   const countFor = async (where: string): Promise<number | null> => {
-    const key = `count:${where}`;
+    const key = fullText ? `count:q:${fullText}` : `count:${where}`;
     const hit = cached(key);
     if (typeof hit === 'number') return hit;
     try {
@@ -349,7 +351,7 @@ export async function GET(req: NextRequest) {
         CENSUS,
         {
           $select: 'count(*)',
-          ...(where ? { $where: where } : {}),
+          ...(fullText ? { $q: fullText } : where ? { $where: where } : {}),
         },
         sodaOpts
       );
@@ -369,7 +371,7 @@ export async function GET(req: NextRequest) {
       {
         $limit: String(limit),
         $offset: String(offset),
-        ...(where ? { $where: where } : {}),
+        ...(fullText ? { $q: fullText } : where ? { $where: where } : {}),
         ...(hasDates ? { $order: 'add_date DESC' } : {}),
       },
       sodaOpts
@@ -410,7 +412,9 @@ export async function GET(req: NextRequest) {
       cached: false,
       source: 'census',
     };
-    remember(cacheKey, payload);
+    // An empty name result falls through to SAFER below; don't pin it so the
+    // next search retries the live census.
+    if (!(fullText && results.length === 0)) remember(cacheKey, payload);
     return payload;
   };
 
@@ -430,7 +434,12 @@ export async function GET(req: NextRequest) {
    * throttled. Advanced filters cannot be honoured there, so only the simple
    * page falls back.
    */
-  const saferFallback = async (): Promise<SearchOutcome | null> => {
+  const saferFallback = async (reason: 'slow' | 'no-match' = 'slow'): Promise<SearchOutcome | null> => {
+    const note = (detail: string) =>
+      reason === 'no-match'
+        ? `No exact census match — ${detail}`
+        : `The live census feed is slow right now — ${detail}`;
+
     if (qIsExact && qDigits) {
       // "MC123" can only be a docket number, but a bare number can be either a
       // USDOT or an MC number, so try USDOT first and docket second.
@@ -458,7 +467,7 @@ export async function GET(req: NextRequest) {
           pages: 1,
           cached: false,
           source: 'safer',
-          notice: 'The live census feed is slow right now — showing basic details from FMCSA SAFER.',
+          notice: note('showing basic details from FMCSA SAFER.'),
         };
         // Deliberately not cached: the census often recovers within seconds, and
         // the next search must be allowed to return full data. SAFER responses
@@ -494,10 +503,10 @@ export async function GET(req: NextRequest) {
           cached: false,
           source: 'safer',
           notice: found.relaxed
-            ? `The live census feed is slow right now — FMCSA SAFER has no exact match, so these are matches for "${found.relaxed}".`
+            ? note(`FMCSA SAFER has no exact match, so these are matches for "${found.relaxed}".`)
             : found.capped
-              ? `The live census feed is slow right now — showing the first ${limit} name matches from FMCSA SAFER (basic details).`
-              : 'The live census feed is slow right now — showing matches from FMCSA SAFER (basic details).',
+              ? note(`showing the first ${limit} name matches from FMCSA SAFER (basic details).`)
+              : note('showing matches from FMCSA SAFER (basic details).'),
         };
         // Not cached either, so the next search retries the live census first.
         return { payload };
@@ -529,7 +538,17 @@ export async function GET(req: NextRequest) {
       } finally {
         if (timer) clearTimeout(timer);
       }
-      if (quick) return quick;
+      if (quick) {
+        const results = quick.payload?.['results'];
+        const empty = fullText !== null && Array.isArray(results) && results.length === 0;
+        if (empty) {
+          // Nothing matched the full-text query — SAFER's keyword search can
+          // still surface related carriers instead of a dead end.
+          const fromSafer = await saferFallback('no-match');
+          if (fromSafer) return fromSafer;
+        }
+        return quick;
+      }
 
       const fromSafer = await saferFallback();
       if (fromSafer) return fromSafer;
@@ -542,7 +561,7 @@ export async function GET(req: NextRequest) {
         status: err.status,
         retryable: err.retryable,
         requestId: err.requestId,
-        where: censusWhere,
+        query: fullText ? `$q=${fullText}` : censusWhere,
       });
       // Simple searches can always fall back to SAFER; advanced filters cannot.
       if (q && !hasDiscrete) {
