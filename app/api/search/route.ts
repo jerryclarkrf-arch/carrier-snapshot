@@ -13,9 +13,10 @@ const CENSUS_TTL = 10 * 60 * 1000;
 // Counts move slowly and are the most expensive query we issue, so keep them longer.
 const COUNT_TTL = 30 * 60 * 1000;
 const MAX_CACHE = 400;
-// The census feed is usually either fast (<1s) or immediately 429s/hangs, so a
-// short timeout keeps the SAFER fallback responsive. The browser retries once.
-const SODA_OPTS = { attempts: 1, timeoutMs: 5000 };
+// One attempt per query: a slow or throttled census is covered by SAFER instead
+// of retrying, which would only add latency.
+const SODA_EXACT = { attempts: 1, timeoutMs: 8000 };
+const SODA_TEXT = { attempts: 1, timeoutMs: 15000 };
 const cache = new Map<string, { ts: number; ttl: number; data: unknown }>();
 
 type SearchOutcome = {
@@ -166,6 +167,7 @@ export async function GET(req: NextRequest) {
   const qMcMatch = qStripped.match(/^(MC|FF|MX)(\d+)$/i);
   const qDigits = qMcMatch ? qMcMatch[2] : qStripped.replace(/\D/g, '');
   const qIsExact = !!q && (/^\d{1,9}$/.test(qStripped) || !!qMcMatch);
+  const sodaOpts = qIsExact ? SODA_EXACT : SODA_TEXT;
   // Discrete (advanced page)
   const fName = (p.get('name') || '').trim();
   const fDba = (p.get('dba') || '').trim();
@@ -349,7 +351,7 @@ export async function GET(req: NextRequest) {
           $select: 'count(*)',
           ...(where ? { $where: where } : {}),
         },
-        SODA_OPTS
+        sodaOpts
       );
       const raw = Array.isArray(rows) && rows[0] ? rows[0].count : undefined;
       const total = raw === undefined ? null : Number(raw) || 0;
@@ -370,7 +372,7 @@ export async function GET(req: NextRequest) {
         ...(where ? { $where: where } : {}),
         ...(hasDates ? { $order: 'add_date DESC' } : {}),
       },
-      SODA_OPTS
+      sodaOpts
     );
 
   const fetchRowsWithDbaFallback = async (where: string): Promise<Row[]> => {
@@ -388,15 +390,7 @@ export async function GET(req: NextRequest) {
     }
   };
 
-  const runSearch = async (): Promise<SearchOutcome> => {
-    const [rows, count] = await Promise.all([
-      fetchRowsWithDbaFallback(censusWhere),
-      qIsExact ? Promise.resolve(null) : countFor(censusWhere),
-    ]);
-    if (!Array.isArray(rows)) {
-      throw new Error('The FMCSA census feed returned an unexpected response.');
-    }
-
+  const censusPayload = (rows: Row[], count: number | null): Record<string, unknown> => {
     const results = rows.map(mapCarrier);
     // Exact lookups return only equality matches, so the row count is the total
     // and the count(*) request (the most expensive query) can be skipped. When
@@ -417,7 +411,18 @@ export async function GET(req: NextRequest) {
       source: 'census',
     };
     remember(cacheKey, payload);
-    return { payload };
+    return payload;
+  };
+
+  const runCensus = async (): Promise<SearchOutcome> => {
+    const [rows, count] = await Promise.all([
+      fetchRowsWithDbaFallback(censusWhere),
+      qIsExact ? Promise.resolve(null) : countFor(censusWhere),
+    ]);
+    if (!Array.isArray(rows)) {
+      throw new Error('The FMCSA census feed returned an unexpected response.');
+    }
+    return { payload: censusPayload(rows, count) };
   };
 
   /**
@@ -453,9 +458,11 @@ export async function GET(req: NextRequest) {
           pages: 1,
           cached: false,
           source: 'safer',
-          notice: 'The FMCSA census feed is busy — showing limited data from FMCSA SAFER.',
+          notice: 'The live census feed is slow right now — showing basic details from FMCSA SAFER.',
         };
-        remember(cacheKey, payload, 5 * 60 * 1000);
+        // Deliberately not cached: the census often recovers within seconds, and
+        // the next search must be allowed to return full data. SAFER responses
+        // are cached inside lib/safer.ts, so a retry is still fast.
         return { payload };
       }
       if (lookups.some((lookup) => lookup?.inactive)) {
@@ -487,12 +494,12 @@ export async function GET(req: NextRequest) {
           cached: false,
           source: 'safer',
           notice: found.relaxed
-            ? `The FMCSA census feed is busy — FMCSA SAFER has no exact match, so these are matches for "${found.relaxed}".`
+            ? `The live census feed is slow right now — FMCSA SAFER has no exact match, so these are matches for "${found.relaxed}".`
             : found.capped
-              ? `The FMCSA census feed is busy — showing the first ${limit} name matches from FMCSA SAFER (limited data).`
-              : 'The FMCSA census feed is busy — showing matches from FMCSA SAFER (limited data).',
+              ? `The live census feed is slow right now — showing the first ${limit} name matches from FMCSA SAFER (basic details).`
+              : 'The live census feed is slow right now — showing matches from FMCSA SAFER (basic details).',
         };
-        remember(cacheKey, payload, 5 * 60 * 1000);
+        // Not cached either, so the next search retries the live census first.
         return { payload };
       }
     }
@@ -502,7 +509,33 @@ export async function GET(req: NextRequest) {
 
   const run = async (): Promise<SearchOutcome> => {
     try {
-      return await runSearch();
+      // Advanced searches (and filter-only queries) can only run on the census.
+      if (!q || hasDiscrete) return await runCensus();
+
+      // Simple search: start the census, but don't leave the user waiting on a
+      // slow federated query. SAFER answers in about a second, and a census
+      // result that lands later is cached for the next search.
+      const census = runCensus();
+      census.catch(() => void 0); // it may still reject after we answer from SAFER
+
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const grace = new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), qIsExact ? 2500 : 5000);
+      });
+
+      let quick: SearchOutcome | null = null;
+      try {
+        quick = await Promise.race([census, grace]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+      if (quick) return quick;
+
+      const fromSafer = await saferFallback();
+      if (fromSafer) return fromSafer;
+
+      // SAFER has nothing for this query — wait for the census to finish.
+      return await census;
     } catch (e) {
       const err = asSodaError(e);
       console.error('[api/search] census lookup failed', {
@@ -511,7 +544,8 @@ export async function GET(req: NextRequest) {
         requestId: err.requestId,
         where: censusWhere,
       });
-      if (err.retryable) {
+      // Simple searches can always fall back to SAFER; advanced filters cannot.
+      if (q && !hasDiscrete) {
         const fromSafer = await saferFallback();
         if (fromSafer) return fromSafer;
       }
