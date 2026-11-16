@@ -19,6 +19,7 @@ export default function SimpleSearch() {
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [source, setSource] = useState<'census' | 'safer' | null>(null);
   const [canRetry, setCanRetry] = useState(false);
   const [lastQuery, setLastQuery] = useState('');
 
@@ -45,6 +46,7 @@ export default function SimpleSearch() {
       setPage(json.page || 1);
       setPages(json.pages || 0);
       setNotice(json.notice || null);
+      setSource(json.source || null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Search failed');
       setCanRetry(isRetryable(e));
@@ -76,6 +78,7 @@ export default function SimpleSearch() {
     setSearched(false);
     setError(null);
     setNotice(null);
+    setSource(null);
     setCanRetry(false);
     setLastQuery('');
   }
@@ -189,8 +192,26 @@ export default function SimpleSearch() {
         )}
 
         {notice && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {notice}
+          <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 sm:flex-row sm:items-center sm:justify-between">
+            <p className="flex items-start gap-2">
+              <span
+                aria-hidden
+                className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600"
+              >
+                i
+              </span>
+              <span>{notice}</span>
+            </p>
+            {source === 'safer' && (
+              <button
+                type="button"
+                onClick={() => run(page)}
+                disabled={loading}
+                className="shrink-0 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50 sm:self-auto"
+              >
+                {loading ? 'Trying…' : 'Try full census'}
+              </button>
+            )}
           </div>
         )}
 
