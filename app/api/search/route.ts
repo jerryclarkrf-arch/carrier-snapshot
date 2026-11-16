@@ -9,9 +9,11 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 const CENSUS = 'https://data.transportation.gov/resource/az4n-8mr2.json';
-const CENSUS_TTL = 10 * 60 * 1000;
+// The census is refreshed daily, so holding results for an hour is safe and
+// makes repeat lookups instant even while the feed is slow.
+const CENSUS_TTL = 60 * 60 * 1000;
 // Counts move slowly and are the most expensive query we issue, so keep them longer.
-const COUNT_TTL = 30 * 60 * 1000;
+const COUNT_TTL = 6 * 60 * 60 * 1000;
 const MAX_CACHE = 400;
 // One attempt per query: a slow or throttled census is covered by SAFER instead
 // of retrying, which would only add latency.
@@ -234,8 +236,8 @@ export async function GET(req: NextRequest) {
   const cacheKey = JSON.stringify([q, fName, fDba, fUsdot, fMc, fDocket, fDocketPrefix, fPhone, fCity, fZip, fContact,
     [...authorityRoles].sort(), authorityOp, operation, [...cargo].sort(), [...ratings].sort(), [...fleetSize].sort(),
     powerMin, powerMax, priorRevoked, pendingAuthority, state, status, addedFrom, addedTo, limit, page, loggedIn]);
-  const hit = cached(cacheKey);
-  if (hit) return NextResponse.json(hit);
+  const hit = cached(cacheKey) as Record<string, unknown> | null;
+  if (hit) return NextResponse.json({ ...hit, cached: true });
 
   const wheres: string[] = [];
   let dbaUsed = false;
