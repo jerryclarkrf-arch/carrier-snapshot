@@ -6,7 +6,9 @@
         "dev": "next dev",
         "build": "next build",
         "start": "next start",
-        "lint": "eslint"
+        "lint": "eslint",
+        "apply:carrier-index-schema": "node scripts/apply-carrier-index-schema.mjs",
+        "sync:carrier-index": "node scripts/sync-carrier-index.mjs"
     },
     "dependencies": {
         "@neon/config": "^1.9.2",

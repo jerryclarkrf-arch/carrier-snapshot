@@ -19,7 +19,7 @@ export default function SimpleSearch() {
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [source, setSource] = useState<'census' | 'safer' | null>(null);
+  const [source, setSource] = useState<'census' | 'safer' | 'index' | null>(null);
   const [canRetry, setCanRetry] = useState(false);
   const [lastQuery, setLastQuery] = useState('');
 

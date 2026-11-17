@@ -1,0 +1,28 @@
+name: Sync carrier index
+
+on:
+  schedule:
+    # Sundays at 03:00 UTC. The FMCSA census refreshes daily; weekly is plenty.
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: carrier-index-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev
+      - name: Sync active carriers into the search index
+        run: node scripts/sync-carrier-index.mjs
+        env:
+          CARRIER_INDEX_DATABASE_URL_UNPOOLED: ${{ secrets.CARRIER_INDEX_DATABASE_URL_UNPOOLED }}
+          DOT_APP_TOKEN: ${{ secrets.DOT_APP_TOKEN }}

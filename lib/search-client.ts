@@ -6,7 +6,7 @@ export type SearchPayload = {
   page?: number;
   pages?: number;
   notice?: string;
-  source?: 'census' | 'safer';
+  source?: 'census' | 'safer' | 'index';
 };
 
 type RetryableError = Error & { retryable?: boolean };

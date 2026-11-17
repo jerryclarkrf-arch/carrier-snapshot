@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth/server';
 import { sodaJson, asSodaError } from '@/lib/soda';
 import { fetchSaferSnapshot, searchSaferByName, type SaferCarrier } from '@/lib/safer';
+import { isCarrierIndexEnabled, searchCarrierIndex, type IndexedCarrier } from '@/lib/carrier-index';
 
 export const dynamic = 'force-dynamic';
 // The census feed can be slow while it is throttled; the retry loop needs room
@@ -69,7 +70,7 @@ const RATING_MAP: Record<string, string> = {
   Unsatisfactory: 'U',
 };
 
-type CarrierRecord = ReturnType<typeof mapCarrier> & { masked?: boolean };
+type CarrierRecord = ReturnType<typeof mapCarrier> & { masked?: boolean; partial?: boolean };
 
 function maskCarriers(results: CarrierRecord[]): CarrierRecord[] {
   return results.map((c) => ({
@@ -152,6 +153,41 @@ function mapCarrier(r: Row) {
     },
     addDate: fmtDate(str(r, 'add_date')),
     mcs150: fmtDate(str(r, 'mcsipdate')),
+  };
+}
+
+/** Maps a carrier-index row into the shape the card renders. */
+function mapIndexedCarrier(row: IndexedCarrier): CarrierRecord {
+  const prefix = (row.docket_prefix || '').toUpperCase();
+  const entityType = ENTITY_TYPE[prefix] || null;
+  return {
+    usdot: String(row.dot_number),
+    docketDigits: row.docket ? row.docket.replace(/\D/g, '') : '',
+    docket: row.docket,
+    legalName: row.legal_name,
+    dba: row.dba_name,
+    companyOfficer: null,
+    entityType,
+    entityTypes: entityType ? [entityType] : [],
+    dotStatus: STATUS[(row.status_code || '').toUpperCase()] || 'Unknown',
+    authStatus: STATUS[(row.docket_status || '').toUpperCase()] || 'Unknown',
+    authType: null,
+    phone: row.phone,
+    email: null,
+    powerUnits: row.power_units,
+    drivers: row.drivers,
+    phy: { street: undefined, city: row.city || undefined, state: row.state || undefined, zip: undefined },
+    mail: { street: undefined, city: undefined, state: undefined, zip: undefined },
+    cargo: {
+      'General Freight': false,
+      'Fresh Produce': false,
+      Meat: false,
+      Refrigerated: false,
+      Hazmat: false,
+    },
+    addDate: fmtDate(row.add_date),
+    mcs150: fmtDate(row.mcs150_date),
+    partial: true,
   };
 }
 
@@ -460,7 +496,10 @@ export async function GET(req: NextRequest) {
       }
 
       if (carriers.length > 0) {
-        const results = carriers as unknown as CarrierRecord[];
+        const results = carriers.map((carrier) => ({
+          ...carrier,
+          partial: true,
+        })) as unknown as CarrierRecord[];
         const payload = {
           results: loggedIn ? results : maskCarriers(results),
           total: results.length,
@@ -495,7 +534,10 @@ export async function GET(req: NextRequest) {
     if (q && !qIsExact && !hasDiscrete) {
       const found = await searchSaferByName(q, limit);
       if (found && found.results.length > 0) {
-        const results = found.results as unknown as CarrierRecord[];
+        const results = found.results.map((carrier) => ({
+          ...carrier,
+          partial: true,
+        })) as unknown as CarrierRecord[];
         const payload = {
           results: loggedIn ? results : maskCarriers(results),
           total: found.total,
@@ -520,6 +562,27 @@ export async function GET(req: NextRequest) {
 
   const run = async (): Promise<SearchOutcome> => {
     try {
+      // Name searches hit the local index when it is enabled and populated; a
+      // miss falls through to the live census so brand-new carriers still show.
+      if (fullText && !hasDiscrete && isCarrierIndexEnabled()) {
+        const indexed = await searchCarrierIndex(fullText, limit, offset);
+        if (indexed && indexed.rows.length > 0) {
+          const results = indexed.rows.map(mapIndexedCarrier);
+          const payload: Record<string, unknown> = {
+            results: loggedIn ? results : maskCarriers(results),
+            total: indexed.total,
+            page,
+            limit,
+            pages: Math.max(1, Math.ceil(indexed.total / limit)),
+            cached: false,
+            source: 'index',
+            estimated: indexed.estimated,
+          };
+          remember(cacheKey, payload);
+          return { payload };
+        }
+      }
+
       // Advanced searches (and filter-only queries) can only run on the census.
       if (!q || hasDiscrete) return await runCensus();
 

@@ -18,6 +18,8 @@ export interface Carrier {
   mail: { street?: string; city?: string; state?: string; zip?: string };
   cargo: Record<string, boolean>;
   addDate: string | null; mcs150: string | null;
+  /** True when the row came from the index or SAFER and lacks detail fields. */
+  partial?: boolean;
 }
 
 interface InsPolicy { form: string; type: string; carrier: string; policy: string; coverage: string; effective: string; status: string; }
@@ -121,7 +123,9 @@ function CopyBtn({ value, label }: { value: string; label: string }) {
   );
 }
 
-export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
+export default function CarrierCard({ carrier: base }: { carrier: Carrier }) {
+  const [extra, setExtra] = useState<Partial<Carrier> | null>(null);
+  const c: Carrier = { ...base, ...(extra || {}) };
   const [open, setOpen] = useState(false);
   const [ins, setIns] = useState<{ loading: boolean; owner: string | null; policies: InsPolicy[]; financial: Financial | null } | null>(null);
   const [insp, setInsp] = useState<{ loading: boolean; rows: Insp[] } | null>(null);
@@ -175,6 +179,17 @@ export default function CarrierCard({ carrier: c }: { carrier: Carrier }) {
     setOpen(next);
     if (!next) return;
     if (session?.user) void refreshWatch();
+
+    // The search index carries list fields only; fill in email, owner, cargo and
+    // full addresses from the live census (or SAFER) the first time a card opens.
+    if (!extra && base.partial) {
+      fetch('/api/carrier?dot=' + c.usdot)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (j?.details) setExtra(j.details as Partial<Carrier>);
+        })
+        .catch(() => void 0);
+    }
 
     if (!ins) setIns({ loading: true, owner: null, policies: [], financial: null });
     if (!insp) setInsp({ loading: true, rows: [] });
