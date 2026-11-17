@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
     const rows = await sodaJson<Row[]>(
       CENSUS,
       { $limit: '1', $select: SELECT, $where: `dot_number='${dot}'` },
-      { attempts: 1, timeoutMs: 8000 }
+      { attempts: 1, timeoutMs: 4000 }
     );
     if (Array.isArray(rows) && rows[0]) {
       const row = rows[0];
