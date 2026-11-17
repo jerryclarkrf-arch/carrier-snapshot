@@ -72,7 +72,9 @@ const args = process.argv.slice(2);
 const limitIndex = args.indexOf('--limit');
 const limitArg = limitIndex >= 0 ? Number(args[limitIndex + 1]) : NaN;
 const maxRows = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : Infinity;
-const skipDelete = args.includes('--skip-delete') || maxRows !== Infinity;
+const offsetIndex = args.indexOf('--offset');
+const startOffset = offsetIndex >= 0 ? Math.max(0, Number(args[offsetIndex + 1]) || 0) : 0;
+const skipDelete = args.includes('--skip-delete') || maxRows !== Infinity || startOffset > 0;
 const pageSize = maxRows === Infinity ? PAGE_SIZE : Math.min(PAGE_SIZE, maxRows);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -128,10 +130,21 @@ async function fetchPage(offset) {
   })}`;
 
   for (let attempt = 1; ; attempt++) {
-    const res = await fetch(url, {
-      headers: token ? { 'X-App-Token': token } : {},
-      signal: AbortSignal.timeout(180_000),
-    });
+    let res;
+    try {
+      res = await fetch(url, {
+        headers: token ? { 'X-App-Token': token } : {},
+        signal: AbortSignal.timeout(180_000),
+      });
+    } catch (error) {
+      if (attempt >= 12) throw error;
+      const wait = Math.min(30_000 * attempt, 180_000);
+      console.log(
+        `  network error (${error instanceof Error ? error.message : String(error)}) — retrying in ${wait / 1000}s (attempt ${attempt})`
+      );
+      await sleep(wait);
+      continue;
+    }
     if (res.ok) return res.json();
     const retryable = res.status === 429 || res.status >= 500;
     if (!retryable || attempt >= 12) {
@@ -222,7 +235,7 @@ try {
   );
   runId = run.rows[0].id;
 
-  let offset = 0;
+  let offset = startOffset;
   let keepGoing = true;
 
   while (keepGoing) {
