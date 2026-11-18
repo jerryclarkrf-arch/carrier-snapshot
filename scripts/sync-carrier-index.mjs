@@ -74,8 +74,19 @@ const limitArg = limitIndex >= 0 ? Number(args[limitIndex + 1]) : NaN;
 const maxRows = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : Infinity;
 const offsetIndex = args.indexOf('--offset');
 const startOffset = offsetIndex >= 0 ? Math.max(0, Number(args[offsetIndex + 1]) || 0) : 0;
-const skipDelete = args.includes('--skip-delete') || maxRows !== Infinity || startOffset > 0;
-const pageSize = maxRows === Infinity ? PAGE_SIZE : Math.min(PAGE_SIZE, maxRows);
+const deltaIndex = args.indexOf('--delta-days');
+const deltaDays = deltaIndex >= 0 ? Math.max(1, Number(args[deltaIndex + 1]) || 3) : null;
+const deltaSince = deltaDays
+  ? new Date(Date.now() - deltaDays * 86_400_000).toISOString().slice(0, 10).replace(/-/g, '')
+  : null;
+const skipDelete =
+  args.includes('--skip-delete') || maxRows !== Infinity || startOffset > 0 || deltaDays !== null;
+const pageSize = deltaDays
+  ? Math.min(PAGE_SIZE, 5000)
+  : maxRows === Infinity
+    ? PAGE_SIZE
+    : Math.min(PAGE_SIZE, maxRows);
+const modeLabel = deltaDays ? `delta ${deltaDays}d since=${deltaSince}` : 'full';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -121,12 +132,15 @@ function mapRow(row) {
 }
 
 async function fetchPage(offset) {
+  const where = deltaSince
+    ? `status_code='A' AND add_date >= '${deltaSince}'`
+    : `status_code='A'`;
   const url = `${CENSUS}?${new URLSearchParams({
     $limit: String(pageSize),
     $offset: String(offset),
     $select: FIELDS.join(','),
     $order: 'dot_number',
-    $where: `status_code='A'`,
+    $where: where,
   })}`;
 
   for (let attempt = 1; ; attempt++) {
@@ -231,9 +245,10 @@ try {
   const run = await client.query(
     `INSERT INTO carrier_index_sync_runs (status, message)
      VALUES ('running', $1) RETURNING id`,
-    [`page=${PAGE_SIZE} limit=${maxRows === Infinity ? 'all' : maxRows}`]
+    [`mode=${modeLabel} page=${pageSize} limit=${maxRows === Infinity ? 'all' : maxRows}`]
   );
   runId = run.rows[0].id;
+  console.log(`Sync mode: ${modeLabel} (page ${pageSize})`);
 
   let offset = startOffset;
   let keepGoing = true;
@@ -289,7 +304,7 @@ try {
          db_size_bytes = pg_database_size(current_database()),
          status = 'ok', message = $3
      WHERE id = $1`,
-    [runId, processed, `removed=${removed}`]
+    [runId, processed, `mode=${modeLabel} removed=${removed}`]
   );
 
   if (dbSize && dbSize.endsWith('MB') && Number(dbSize.replace(' MB', '')) > 850) {

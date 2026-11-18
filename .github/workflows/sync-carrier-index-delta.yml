@@ -1,0 +1,42 @@
+name: Sync new carriers (delta)
+
+on:
+  schedule:
+    # Daily at 13:00 UTC. New carriers are added to the census every day.
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+
+# Shared with the weekly full sync so the two never overlap (the full run
+# removes inactive carriers, which must not race a delta insert).
+concurrency:
+  group: carrier-index-sync
+  cancel-in-progress: false
+
+jobs:
+  delta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev
+      - id: config
+        env:
+          INDEX_DB: ${{ secrets.CARRIER_INDEX_DATABASE_URL_UNPOOLED }}
+          DOT_TOKEN: ${{ secrets.DOT_APP_TOKEN }}
+        run: |
+          if [ -z "$INDEX_DB" ] || [ -z "$DOT_TOKEN" ]; then
+            echo "::warning::Repository secrets CARRIER_INDEX_DATABASE_URL_UNPOOLED and/or DOT_APP_TOKEN are not set. Skipping."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Sync carriers added in the last 2 days
+        if: steps.config.outputs.ready == 'true'
+        run: node scripts/sync-carrier-index.mjs --delta-days 2
+        env:
+          CARRIER_INDEX_DATABASE_URL_UNPOOLED: ${{ secrets.CARRIER_INDEX_DATABASE_URL_UNPOOLED }}
+          DOT_APP_TOKEN: ${{ secrets.DOT_APP_TOKEN }}

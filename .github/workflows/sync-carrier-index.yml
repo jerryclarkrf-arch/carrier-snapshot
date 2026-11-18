@@ -2,8 +2,8 @@ name: Sync carrier index
 
 on:
   schedule:
-    # Sundays at 03:00 UTC. The FMCSA census refreshes daily; weekly is plenty.
-    - cron: '0 3 * * 0'
+    # Wednesdays at 13:00 UTC — one hour after FMCSA's weekly census refresh.
+    - cron: '0 13 * * 3'
   workflow_dispatch:
 
 concurrency:
@@ -21,7 +21,19 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --omit=dev
-      - name: Sync active carriers into the search index
+      - id: config
+        env:
+          INDEX_DB: ${{ secrets.CARRIER_INDEX_DATABASE_URL_UNPOOLED }}
+          DOT_TOKEN: ${{ secrets.DOT_APP_TOKEN }}
+        run: |
+          if [ -z "$INDEX_DB" ] || [ -z "$DOT_TOKEN" ]; then
+            echo "::warning::Repository secrets CARRIER_INDEX_DATABASE_URL_UNPOOLED and/or DOT_APP_TOKEN are not set. Skipping."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Full sync of active carriers
+        if: steps.config.outputs.ready == 'true'
         run: node scripts/sync-carrier-index.mjs
         env:
           CARRIER_INDEX_DATABASE_URL_UNPOOLED: ${{ secrets.CARRIER_INDEX_DATABASE_URL_UNPOOLED }}

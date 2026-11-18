@@ -26,7 +26,9 @@ then keep using the live census and SAFER exactly as before.
 ```bash
 npm run apply:carrier-index-schema    # create/refresh tables and indexes
 npm run sync:carrier-index            # full sync of active carriers (slow: 1-3 h)
-npm run sync:carrier-index -- --limit 5000   # small test run (skips deletion)
+npm run sync:carrier-index -- --delta-days 2   # only carriers added recently
+npm run sync:carrier-index -- --limit 5000     # small test run (skips deletion)
+npm run sync:carrier-index -- --offset 150000  # resume an interrupted full run
 ```
 
 The sync is resumable and incremental: it upserts only changed rows and removes
@@ -35,18 +37,32 @@ throttles in long windows, so the script waits up to 3 minutes between retries.
 
 ## Storage
 
-The free project is capped at 1 GB. A full active-carrier sync is expected to use
-roughly 600–750 MB. If the script reports more than 850 MB, either drop
-`dba_name` from the indexed expression or move this project to Neon Launch
-(`$0.35/GB-month`).
+The free project is capped at 1 GB. The current full active-carrier index uses
+about **500 MB**. If it ever reports more than 850 MB, either drop `dba_name` from
+the indexed expression or move this project to Neon Launch (`$0.35/GB-month`).
 
-## Weekly refresh
+## Automatic refresh
 
-`.github/workflows/sync-carrier-index.yml` runs every Sunday at 03:00 UTC (and on
-demand). Add these repository secrets before enabling it:
+The FMCSA census file is fully rewritten **weekly (Wednesdays around 12:00 UTC)**,
+while **new carriers are added daily** (~300–550 per weekday). The index therefore
+uses two jobs:
+
+| Workflow | Schedule (UTC) | Mode |
+|---|---|---|
+| `sync-carrier-index.yml` | Wednesdays **13:00** | Full refresh: insert/update/remove all active carriers |
+| `sync-carrier-index-delta.yml` | **Daily 13:00** | `--delta-days 2`: new carriers only, no deletion |
+
+Both share the `carrier-index-sync` concurrency group so they never overlap
+(the full run deletes inactive carriers, which must not race a delta insert).
+
+Add these repository secrets (Settings → Secrets and variables → Actions) before
+the schedules do any work; until then the workflows log a warning and skip:
 
 - `CARRIER_INDEX_DATABASE_URL_UNPOOLED`
 - `DOT_APP_TOKEN`
+
+Minutes used: the weekly full run is ~150 min/week, the daily delta ~1 min/day —
+roughly 680 of the 2,000 monthly minutes on a private repo.
 
 ## Rolling back
 
