@@ -199,6 +199,10 @@ export async function fetchSaferSnapshot(
     }
 
     const carrier = emptyCarrier(id);
+    // SAFER must report its own USDOT: an MC lookup is requested with the MC
+    // digits, which are not the carrier's USDOT number.
+    const saferDot = (fields['usdot number'] || '').replace(/\D/g, '');
+    carrier.usdot = saferDot || id;
     carrier.legalName = fields['legal name'] || null;
     carrier.dba = fields['dba name'] || null;
     carrier.phone = fields['phone'] || null;

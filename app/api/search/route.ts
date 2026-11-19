@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth/server';
 import { sodaJson, asSodaError } from '@/lib/soda';
 import { fetchSaferSnapshot, searchSaferByName, type SaferCarrier } from '@/lib/safer';
-import { isCarrierIndexEnabled, searchCarrierIndex, type IndexedCarrier } from '@/lib/carrier-index';
+import {
+  isCarrierIndexEnabled,
+  lookupCarrierIndexByNumber,
+  searchCarrierIndex,
+  type IndexedCarrier,
+} from '@/lib/carrier-index';
 
 export const dynamic = 'force-dynamic';
 // The census feed can be slow while it is throttled; the retry loop needs room
@@ -562,6 +567,29 @@ export async function GET(req: NextRequest) {
 
   const run = async (): Promise<SearchOutcome> => {
     try {
+      // Exact USDOT / MC lookups hit the index first: it holds the correct DOT
+      // and docket pairing and answers in milliseconds.
+      if (qIsExact && isCarrierIndexEnabled() && qDigits) {
+        const numeric = Number(qDigits);
+        if (Number.isSafeInteger(numeric)) {
+          const indexed = await lookupCarrierIndexByNumber(numeric, limit);
+          if (indexed && indexed.length > 0) {
+            const results = indexed.map(mapIndexedCarrier);
+            const payload: Record<string, unknown> = {
+              results: loggedIn ? results : maskCarriers(results),
+              total: results.length,
+              page: 1,
+              limit,
+              pages: 1,
+              cached: false,
+              source: 'index',
+            };
+            remember(cacheKey, payload);
+            return { payload };
+          }
+        }
+      }
+
       // Name searches hit the local index when it is enabled and populated; a
       // miss falls through to the live census so brand-new carriers still show.
       if (fullText && !hasDiscrete && isCarrierIndexEnabled()) {

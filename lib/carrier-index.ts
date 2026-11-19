@@ -123,6 +123,33 @@ export async function searchCarrierIndex(
   }
 }
 
+export async function lookupCarrierIndexByNumber(
+  value: number,
+  limit = 50
+): Promise<IndexedCarrier[] | null> {
+  const client = getPool();
+  if (!client) return null;
+  try {
+    const { rows } = await client.query<IndexedCarrier>(
+      `SELECT dot_number, legal_name, dba_name, city, state, status_code, docket,
+              docket_prefix, docket_status, phone, power_units, drivers,
+              add_date::text AS add_date, mcs150_date::text AS mcs150_date
+       FROM carrier_index
+       WHERE dot_number = $1 OR docket_digits = $1
+       ORDER BY (dot_number = $1) DESC, legal_name ASC
+       LIMIT $2`,
+      [value, limit]
+    );
+    return rows;
+  } catch (error) {
+    console.warn('[carrier-index] numeric lookup failed', {
+      value,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
 export async function carrierIndexStats(): Promise<{
   rows: number;
   size: string;
