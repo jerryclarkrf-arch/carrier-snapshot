@@ -178,7 +178,7 @@ function mapIndexedCarrier(row: IndexedCarrier): CarrierRecord {
     authStatus: STATUS[(row.docket_status || '').toUpperCase()] || 'Unknown',
     authType: null,
     phone: row.phone,
-    email: null,
+    email: row.email,
     powerUnits: row.power_units,
     drivers: row.drivers,
     phy: { street: undefined, city: row.city || undefined, state: row.state || undefined, zip: undefined },

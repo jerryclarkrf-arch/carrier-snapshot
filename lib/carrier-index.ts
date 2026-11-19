@@ -33,6 +33,7 @@ export interface IndexedCarrier {
   docket_prefix: string | null;
   docket_status: string | null;
   phone: string | null;
+  email: string | null;
   power_units: number | null;
   drivers: number | null;
   add_date: string | null;
@@ -79,7 +80,7 @@ export async function searchCarrierIndex(
   try {
     const rowsPromise = client.query<IndexedCarrier>(
       `SELECT dot_number, legal_name, dba_name, city, state, status_code, docket,
-              docket_prefix, docket_status, phone, power_units, drivers,
+              docket_prefix, docket_status, phone, email, power_units, drivers,
               add_date::text AS add_date, mcs150_date::text AS mcs150_date,
               ts_rank(${SEARCH_EXPR}, to_tsquery('simple', $1)) AS rank
        FROM carrier_index
@@ -132,7 +133,7 @@ export async function lookupCarrierIndexByNumber(
   try {
     const { rows } = await client.query<IndexedCarrier>(
       `SELECT dot_number, legal_name, dba_name, city, state, status_code, docket,
-              docket_prefix, docket_status, phone, power_units, drivers,
+              docket_prefix, docket_status, phone, email, power_units, drivers,
               add_date::text AS add_date, mcs150_date::text AS mcs150_date
        FROM carrier_index
        WHERE dot_number = $1 OR docket_digits = $1

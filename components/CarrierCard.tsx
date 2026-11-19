@@ -123,9 +123,23 @@ function CopyBtn({ value, label }: { value: string; label: string }) {
   );
 }
 
+/** Drops null/undefined fields so a partial detail response can't erase known values. */
+function compact<T extends object>(value: T | null | undefined): Partial<T> {
+  if (!value) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(([, field]) => field !== null && field !== undefined)
+  ) as Partial<T>;
+}
+
 export default function CarrierCard({ carrier: base }: { carrier: Carrier }) {
   const [extra, setExtra] = useState<Partial<Carrier> | null>(null);
-  const c: Carrier = { ...base, ...(extra || {}) };
+  const c: Carrier = {
+    ...base,
+    ...compact(extra),
+    phy: { ...base.phy, ...compact(extra?.phy) },
+    mail: { ...base.mail, ...compact(extra?.mail) },
+    cargo: { ...base.cargo, ...(extra?.cargo ?? {}) },
+  };
   const [open, setOpen] = useState(false);
   const [ins, setIns] = useState<{ loading: boolean; owner: string | null; policies: InsPolicy[]; financial: Financial | null } | null>(null);
   const [insp, setInsp] = useState<{ loading: boolean; rows: Insp[] } | null>(null);

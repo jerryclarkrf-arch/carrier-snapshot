@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth/server';
 import { sodaJson } from '@/lib/soda';
 import { fetchSaferSnapshot } from '@/lib/safer';
+import { lookupCarrierIndexByNumber } from '@/lib/carrier-index';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 20;
@@ -87,6 +88,15 @@ export async function GET(req: NextRequest) {
     };
   };
 
+  // The census can be throttled and SAFER has no email at all, so fall back to
+  // the search index, which carries the FMCSA email for every active carrier.
+  const indexedEmail = async (): Promise<string | null> => {
+    const numeric = Number(dot);
+    if (!Number.isSafeInteger(numeric)) return null;
+    const rows = await lookupCarrierIndexByNumber(numeric, 1);
+    return rows?.find((row) => row.dot_number === numeric)?.email ?? null;
+  };
+
   try {
     const rows = await sodaJson<Row[]>(
       CENSUS,
@@ -96,7 +106,7 @@ export async function GET(req: NextRequest) {
     if (Array.isArray(rows) && rows[0]) {
       const row = rows[0];
       const details = {
-        email: str(row, 'email_address'),
+        email: str(row, 'email_address') || (await indexedEmail()),
         companyOfficer: str(row, 'company_officer_1'),
         authType: str(row, 'classdef'),
         mcs150: fmtDate(str(row, 'mcsipdate')),
@@ -145,7 +155,7 @@ export async function GET(req: NextRequest) {
     const carrier = safer.carrier;
     const payload = {
       details: mask({
-        email: carrier.email,
+        email: carrier.email || (await indexedEmail()),
         companyOfficer: carrier.companyOfficer,
         authType: carrier.authType,
         mcs150: carrier.mcs150,

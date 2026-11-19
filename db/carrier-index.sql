@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS carrier_index (
   docket_digits  integer,
   docket_status  char(1),
   phone          text,
+  email          text,
   power_units    integer,
   drivers        integer,
   add_date       date,
@@ -25,6 +26,7 @@ CREATE TABLE IF NOT EXISTS carrier_index (
 -- Marks when a row was last seen in a full sync. Rows not seen are removed, and
 -- incremental upserts avoid rewriting unchanged rows (keeps WAL/history small).
 ALTER TABLE carrier_index ADD COLUMN IF NOT EXISTS synced_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE carrier_index ADD COLUMN IF NOT EXISTS email text;
 
 -- Word-based search over legal and DBA names. An expression index avoids
 -- storing a separate tsvector column (saves ~150 MB at this row count).
