@@ -31,11 +31,19 @@ npm run sync:carrier-index            # full sync of active carriers (slow: 1-3 
 npm run sync:carrier-index -- --delta-days 2   # only carriers added recently
 npm run sync:carrier-index -- --limit 5000     # small test run (skips deletion)
 npm run sync:carrier-index -- --offset 150000  # resume an interrupted full run
+npm run backfill:carrier-email                 # fast email-only fill for existing rows
+npm run backfill:carrier-email -- --offset 200000  # resume the email backfill
 ```
 
 The sync is resumable and incremental: it upserts only changed rows and removes
 carriers that are no longer active using a temp-table anti-join. Socrata
 throttles in long windows, so the script waits up to 3 minutes between retries.
+
+`backfill:carrier-email` is the fast repair path for the `email` column: it
+fetches only `dot_number,email_address` for active carriers and runs a set-based
+`UPDATE … FROM unnest(...)` against rows where `email IS NULL`, without
+rewriting whole rows. The weekly full sync also fills email for new rows; use
+the backfill after a long gap or when coverage needs to catch up quickly.
 
 ## Storage
 

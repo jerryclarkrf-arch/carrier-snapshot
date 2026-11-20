@@ -99,6 +99,8 @@ re-testing a run on the fork.
   project — keep it only in repository secrets.
 - Standard GitHub-hosted runners are free for public repositories, so the fork
   does not consume the upstream account's minutes.
-- The local repair/backfill path is unchanged: with `.env.local` present, run
+- The local repair paths are unchanged: with `.env.local` present, run
+  `npm run backfill:carrier-email` to fill null emails quickly (set-based,
+  resumable with `--offset N`), or
   `npm run sync:carrier-index -- --offset N` to resume a full sync at a page
-  boundary, or omit `--offset` to restart it.
+  boundary. The weekly full sync also fills email on its next run.

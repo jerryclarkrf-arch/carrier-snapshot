@@ -8,6 +8,7 @@
         "start": "next start",
         "lint": "eslint",
         "apply:carrier-index-schema": "node scripts/apply-carrier-index-schema.mjs",
+        "backfill:carrier-email": "node scripts/backfill-carrier-email.mjs",
         "sync:carrier-index": "node scripts/sync-carrier-index.mjs"
     },
     "dependencies": {

@@ -38,6 +38,11 @@ CREATE INDEX IF NOT EXISTS carrier_index_name_fts_idx ON carrier_index USING gin
 CREATE INDEX IF NOT EXISTS carrier_index_state_city_idx ON carrier_index (state, city);
 CREATE INDEX IF NOT EXISTS carrier_index_docket_idx ON carrier_index (docket_digits);
 
+-- The email backfill and full syncs rewrite many rows and create dead tuples.
+-- On the 1 GB free project, reclaim them at ~2% dead rows instead of the
+-- default 20%, so the database size stays safely below the cap.
+ALTER TABLE carrier_index SET (autovacuum_vacuum_scale_factor = 0.02, autovacuum_vacuum_threshold = 1000);
+
 CREATE TABLE IF NOT EXISTS carrier_index_sync_runs (
   id           bigserial PRIMARY KEY,
   started_at   timestamptz NOT NULL DEFAULT now(),
