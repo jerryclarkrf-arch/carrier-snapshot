@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci --omit=dev
+      - run: npm install --no-save --no-audit --no-fund pg@^8.23.1
       - id: config
         env:
           INDEX_DB: ${{ secrets.CARRIER_INDEX_DATABASE_URL_UNPOOLED }}
