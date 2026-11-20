@@ -6,8 +6,10 @@ free Neon project so search does not depend on DOT's throttled census feed.
 - Project: `carrier-index` (Neon, `aws-us-east-2`)
 - Table: `carrier_index` — ~15 list-view fields for ~2.25 M active carriers
 - Search: Postgres full-text (word/prefix matching) — typically < 100 ms warm
-- Detail fields (email, owner, cargo, full addresses) are fetched per carrier by
-  `GET /api/carrier?dot=…` when a result card is expanded
+- Email is stored on the index row and returned with results (masked for
+  signed-out users); the remaining detail fields (owner, cargo, full addresses)
+  are fetched per carrier by `GET /api/carrier?dot=…` when a result card is
+  expanded
 
 ## Environment
 
@@ -38,8 +40,9 @@ throttles in long windows, so the script waits up to 3 minutes between retries.
 ## Storage
 
 The free project is capped at 1 GB. The current full active-carrier index uses
-about **500 MB**. If it ever reports more than 850 MB, either drop `dba_name` from
-the indexed expression or move this project to Neon Launch (`$0.35/GB-month`).
+about **500 MB**. The `email` column adds roughly another 100 MB once fully
+populated. If the project ever reports more than 850 MB, either drop `dba_name`
+from the indexed expression or move it to Neon Launch (`$0.35/GB-month`).
 
 ## Automatic refresh
 
@@ -54,6 +57,14 @@ uses two jobs:
 
 Both share the `carrier-index-sync` concurrency group so they never overlap
 (the full run deletes inactive carriers, which must not race a delta insert).
+
+> **Where these run:** GitHub Actions on the upstream account is locked for
+> billing, so the schedules currently execute from the public fork
+> `rizwandigitaltribe-byte/carrier-snapshot`. See
+> [run-sync-from-fork.md](./run-sync-from-fork.md) for secrets, manual runs,
+> verification and troubleshooting. The workflow files here remain the source of
+> truth; the fork must be synced (**Sync fork → Update branch**) after any
+> workflow or sync-script change.
 
 Add these repository secrets (Settings → Secrets and variables → Actions) before
 the schedules do any work; until then the workflows log a warning and skip:
