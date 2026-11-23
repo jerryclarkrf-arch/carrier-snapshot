@@ -3,11 +3,9 @@
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import AuthShell from '@/components/AuthShell';
+import { FormError } from '@/components/FormMessage';
 import { authClient } from '@/lib/auth/client';
-
-const inputCls =
-  'block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-600 outline-none';
-const labelCls = 'block text-sm font-medium text-slate-700 mb-1';
 
 function ResetForm() {
   const params = useSearchParams();
@@ -44,55 +42,113 @@ function ResetForm() {
     }
   };
 
+  if (!token) {
+    return (
+      <AuthShell
+        title="Reset link incomplete"
+        subtitle="This link does not include a reset token."
+      >
+        <div className="space-y-4">
+          <FormError>
+            The link may have expired or been copied incompletely. Request a
+            fresh reset email to continue.
+          </FormError>
+          <Link href="/auth/forgot-password" className="btn btn-secondary w-full">
+            Request a new link
+          </Link>
+        </div>
+      </AuthShell>
+    );
+  }
+
   if (done) {
     return (
-      <div className="w-full max-w-md space-y-4 bg-white border border-slate-200 rounded-2xl shadow-sm p-8 text-center">
-        <h1 className="text-2xl font-extrabold text-slate-900">Password reset</h1>
-        <p className="text-sm text-slate-500">Your password has been updated.</p>
-        <Link href="/auth/sign-in" className="inline-block text-sm font-semibold text-blue-700 hover:underline">
+      <AuthShell
+        title="Password reset"
+        subtitle="Your password has been updated."
+      >
+        <Link href="/auth/sign-in" className="btn btn-primary w-full">
           Sign in with your new password
         </Link>
-      </div>
+      </AuthShell>
     );
   }
 
   return (
-    <form onSubmit={submit} className="w-full max-w-md space-y-4 bg-white border border-slate-200 rounded-2xl shadow-sm p-8">
-      <div>
-        <h1 className="text-2xl font-extrabold text-slate-900">Set a new password</h1>
-        <p className="text-sm text-slate-500 mt-1">Use the link from your reset email to set a new password.</p>
-      </div>
+    <AuthShell
+      title="Set a new password"
+      subtitle="Use the link from your reset email to set a new password."
+    >
+      <form onSubmit={submit} className="space-y-4">
+        <div>
+          <label htmlFor="password" className="field-label">
+            New password
+          </label>
+          <input
+            id="password"
+            type="password"
+            required
+            autoComplete="new-password"
+            placeholder="••••••••"
+            minLength={8}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="field"
+          />
+          <p className="field-hint">At least 8 characters.</p>
+        </div>
+        <div>
+          <label htmlFor="confirm" className="field-label">
+            Confirm password
+          </label>
+          <input
+            id="confirm"
+            type="password"
+            required
+            autoComplete="new-password"
+            placeholder="••••••••"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className="field"
+          />
+        </div>
 
-      <div>
-        <label htmlFor="password" className={labelCls}>New password</label>
-        <input id="password" type="password" required placeholder="••••••••" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />
-      </div>
-      <div>
-        <label htmlFor="confirm" className={labelCls}>Confirm password</label>
-        <input id="confirm" type="password" required placeholder="••••••••" value={confirm} onChange={(e) => setConfirm(e.target.value)} className={inputCls} />
-      </div>
+        {error && <FormError>{error}</FormError>}
 
-      {error && (
-        <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>
-      )}
+        <button type="submit" disabled={pending} className="btn btn-primary w-full">
+          {pending ? 'Resetting…' : 'Reset password'}
+        </button>
 
-      <button type="submit" disabled={pending && !token} className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-4 py-2.5 text-sm font-semibold text-white transition-colors">
-        {pending ? 'Resetting…' : 'Reset password'}
-      </button>
-
-      <p className="text-sm text-slate-500 text-center">
-        <Link href="/auth/sign-in" className="font-semibold text-blue-700 hover:underline">Back to sign in</Link>
-      </p>
-    </form>
+        <p className="text-center text-sm text-steel">
+          <Link
+            href="/auth/sign-in"
+            className="font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+          >
+            Back to sign in
+          </Link>
+        </p>
+      </form>
+    </AuthShell>
   );
 }
 
 export default function ResetPasswordPage() {
   return (
-    <main className="min-h-screen bg-slate-100 flex items-center justify-center px-4">
-      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
-        <ResetForm />
-      </Suspense>
-    </main>
+    <Suspense
+      fallback={
+        <AuthShell
+          title="Set a new password"
+          subtitle="Loading the reset link…"
+        >
+          <div className="space-y-2" aria-busy="true">
+            <div className="h-11 animate-pulse border border-ink/10 bg-ink/5" />
+            <div className="h-11 animate-pulse border border-ink/10 bg-ink/5" />
+            <div className="h-11 animate-pulse border border-ink/10 bg-ink/5" />
+          </div>
+        </AuthShell>
+      }
+    >
+      <ResetForm />
+    </Suspense>
   );
 }

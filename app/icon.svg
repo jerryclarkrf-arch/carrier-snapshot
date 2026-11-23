@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect x="2" y="2" width="60" height="60" rx="3" fill="#F3B61F" stroke="#15191E" stroke-width="4"/>
+  <path d="M12 15h40M12 49h40" stroke="#15191E" stroke-width="2" opacity=".35"/>
+  <text x="32" y="43" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="900" letter-spacing="1" fill="#15191E">CI</text>
+</svg>

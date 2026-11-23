@@ -1,8 +1,27 @@
-export default function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export default function Section({
+  title,
+  meta,
+  children,
+  className = "",
+}: {
+  title: string;
+  meta?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <div>
-      <h4 className="text-[11px] font-bold tracking-wider text-slate-400 uppercase border-b border-slate-200 pb-1 mb-2">{title}</h4>
+    <section className={`min-w-0 ${className}`}>
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-ink/15 pb-2">
+        <h4 className="font-display text-xl font-semibold leading-none text-ink">
+          {title}
+        </h4>
+        {meta ? (
+          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-steel">
+            {meta}
+          </span>
+        ) : null}
+      </div>
       {children}
-    </div>
+    </section>
   );
 }

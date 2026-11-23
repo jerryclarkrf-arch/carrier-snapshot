@@ -9,17 +9,19 @@ export default function AuthLinks() {
   const { data: session, isPending } = authClient.useSession();
 
   if (isPending) {
-    return <span className="w-8 h-8 rounded-full bg-slate-100 animate-pulse" aria-hidden />;
+    return (
+      <span
+        className="h-11 w-16 animate-pulse border border-ink/15 bg-ink/5 sm:w-24"
+        aria-hidden="true"
+      />
+    );
   }
 
   if (session?.user) {
     return (
-      <div className="flex items-center gap-2">
-        <Link
-          href="/account"
-          className="px-4 py-2 rounded-lg text-sm font-semibold text-blue-700 border border-blue-300 bg-white hover:bg-blue-50 transition-colors"
-        >
-          {session.user.name || 'My Account'}
+      <div className="flex items-center gap-1">
+        <Link href="/account" className="btn btn-secondary">
+          Account
         </Link>
         <button
           type="button"
@@ -27,7 +29,7 @@ export default function AuthLinks() {
             await authClient.signOut();
             router.refresh();
           }}
-          className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+          className="btn btn-ghost hidden sm:inline-flex"
         >
           Sign out
         </button>
@@ -37,15 +39,12 @@ export default function AuthLinks() {
 
   return (
     <div className="flex items-center gap-1">
-      <Link
-        href="/auth/sign-in"
-        className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
-      >
+      <Link href="/auth/sign-in" className="btn btn-ghost">
         Sign in
       </Link>
       <Link
         href="/auth/sign-up"
-        className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+        className="btn btn-primary hidden sm:inline-flex"
       >
         Sign up
       </Link>

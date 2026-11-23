@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
 import InspectionDetail from '@/components/InspectionDetail';
+import { ChevronRightIcon } from '@/components/icons';
 
 interface Equipment {
   type: string;
@@ -69,8 +70,11 @@ export default function FleetPanel({ dot }: { dot: string }) {
 
   if (error === 'unauthorized') {
     return (
-      <p className="text-xs text-slate-600">
-        <Link href="/auth/sign-in" className="font-semibold text-blue-700 hover:underline">
+      <p className="text-sm leading-6 text-steel">
+        <Link
+          href="/auth/sign-in"
+          className="font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+        >
           Sign in
         </Link>{' '}
         to view equipment and fleet details.
@@ -78,23 +82,31 @@ export default function FleetPanel({ dot }: { dot: string }) {
     );
   }
 
-  if (error) return <p className="text-xs text-slate-500">Equipment data could not be loaded. Please try again.</p>;
+  if (error) {
+    return (
+      <p className="text-sm leading-6 text-alert">
+        Equipment data could not be loaded. Please try again.
+      </p>
+    );
+  }
 
   if (!data) {
     return (
       <div className="space-y-2" aria-busy="true">
-        <div className="h-3 w-56 rounded bg-slate-200 animate-pulse" />
-        <div className="h-3 w-full rounded bg-slate-200 animate-pulse" />
-        <div className="h-3 w-4/5 rounded bg-slate-200 animate-pulse" />
+        <span className="sr-only">Loading equipment data</span>
+        <div className="h-3 w-56 animate-pulse bg-ink/10" />
+        <div className="h-3 w-full animate-pulse bg-ink/5" />
+        <div className="h-3 w-4/5 animate-pulse bg-ink/5" />
       </div>
     );
   }
 
   if (data.equipment.length === 0 && data.fleet.length === 0) {
     return (
-      <p className="text-xs text-slate-500">
-        No vehicle-level inspection data is published for this carrier. FMCSA only releases VIN and
-        equipment detail for inspections included in the SMS snapshot.
+      <p className="text-sm leading-6 text-steel">
+        No vehicle-level inspection data is published for this carrier. FMCSA
+        only releases VIN and equipment detail for inspections included in the
+        SMS snapshot.
       </p>
     );
   }
@@ -103,7 +115,7 @@ export default function FleetPanel({ dot }: { dot: string }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-[11px] text-slate-500">
+      <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-steel">
         {data.totals.unitAppearances.toLocaleString()} unit appearances across inspections
         {data.totals.distinctVehicles > 0 &&
           ` · ${data.totals.distinctVehicles.toLocaleString()} distinct vehicle${data.totals.distinctVehicles === 1 ? '' : 's'} identified by VIN`}
@@ -111,67 +123,85 @@ export default function FleetPanel({ dot }: { dot: string }) {
       </p>
 
       {data.equipment.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-2">
           {data.equipment.map((e) => (
-            <div key={`${e.role}-${e.type}`} className="flex items-center gap-2 text-xs">
-              <span className="w-32 sm:w-44 shrink-0 truncate">{titleCase(e.type)}</span>
-              <span className="w-16 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            <div
+              key={`${e.role}-${e.type}`}
+              className="flex flex-wrap items-center gap-2 text-xs sm:flex-nowrap"
+            >
+              <span className="w-full shrink-0 truncate text-ink sm:w-40">
+                {titleCase(e.type)}
+              </span>
+              <span className="w-16 shrink-0 font-mono text-[9px] uppercase tracking-[0.08em] text-steel">
                 {e.role}
               </span>
-              <span className="flex-1 h-1.5 rounded bg-slate-100 overflow-hidden">
+              <span className="h-1.5 flex-1 overflow-hidden bg-paper">
                 <span
-                  className="block h-full bg-blue-500"
+                  className="block h-full bg-ink"
                   style={{ width: `${Math.max(4, Math.round((e.count / max) * 100))}%` }}
                 />
               </span>
-              <span className="w-14 text-right font-semibold tabular-nums">{e.count.toLocaleString()}</span>
+              <span className="w-12 text-right font-mono text-[11px] tabular-nums text-ink">
+                {e.count.toLocaleString()}
+              </span>
             </div>
           ))}
         </div>
       )}
 
       {data.fleet.length > 0 && (
-        <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white">
-          <table className="min-w-full text-xs">
-            <thead className="bg-slate-50 text-slate-600 font-semibold">
+        <div className="overflow-hidden border border-ink/15 bg-white">
+          <table className="data-table">
+            <thead>
               <tr>
-                <th className="py-2 px-2 text-left w-6" />
-                <th className="py-2 px-3 text-left">VIN</th>
-                <th className="py-2 px-3 text-left">Type</th>
-                <th className="py-2 px-3 text-left">Manufacturer</th>
-                <th className="py-2 px-3 text-right">Inspections</th>
+                <th>
+                  <span className="sr-only">Expand vehicle</span>
+                </th>
+                <th>VIN</th>
+                <th>Type</th>
+                <th>Manufacturer</th>
+                <th>Inspections</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {data.fleet.map((v) => {
                 const isOpen = openVin === v.vin;
                 const toggle = () => setOpenVin(isOpen ? null : v.vin);
                 return (
                   <Fragment key={v.vin}>
-                    <tr className={isOpen ? 'bg-blue-50/40' : 'hover:bg-slate-50'}>
-                      <td className="py-2 px-2 align-middle">
+                    <tr className={isOpen ? 'bg-paper/60' : undefined}>
+                      <td className="w-12">
                         <button
                           type="button"
                           onClick={toggle}
                           aria-expanded={isOpen}
                           aria-label={isOpen ? 'Hide inspections for this vehicle' : 'Show inspections for this vehicle'}
-                          className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-blue-700 hover:bg-blue-100 transition-colors"
+                          className="flex h-11 w-11 items-center justify-center text-steel transition-colors hover:text-ink"
                         >
-                          <span className={`inline-block transition-transform ${isOpen ? 'rotate-90' : ''}`}>▸</span>
+                          <ChevronRightIcon
+                            size={16}
+                            className={`transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                          />
                         </button>
                       </td>
-                      <td className="py-2 px-3">
-                        <button type="button" onClick={toggle} className="font-mono text-blue-600 hover:underline">
+                      <td data-label="VIN">
+                        <button
+                          type="button"
+                          onClick={toggle}
+                          className="inline-flex min-h-11 items-center font-mono text-[11px] text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+                        >
                           {v.vin}
                         </button>
                       </td>
-                      <td className="py-2 px-3">{titleCase(v.type) || '—'}</td>
-                      <td className="py-2 px-3">{v.make || '—'}</td>
-                      <td className="py-2 px-3 text-right font-semibold tabular-nums">{v.inspections}</td>
+                      <td data-label="Type">{titleCase(v.type) || '—'}</td>
+                      <td data-label="Manufacturer">{v.make || '—'}</td>
+                      <td data-label="Inspections" className="text-right font-mono text-[11px] tabular-nums">
+                        {v.inspections}
+                      </td>
                     </tr>
                     {isOpen && (
-                      <tr className="bg-slate-50/70">
-                        <td colSpan={5} className="px-4 pb-4 pt-2">
+                      <tr>
+                        <td colSpan={5} className="data-table-detail bg-paper/40">
                           <VinReports dot={dot} vin={v.vin} />
                         </td>
                       </tr>
@@ -212,24 +242,48 @@ function VinReports({ dot, vin }: { dot: string; vin: string }) {
     };
   }, [dot, vin]);
 
-  if (failed) return <p className="text-xs text-slate-500">This vehicle&apos;s inspections could not be loaded.</p>;
-  if (!rows) return <p className="text-xs text-slate-400">Loading inspections for this vehicle…</p>;
-  if (rows.length === 0) return <p className="text-xs text-slate-500">No inspections recorded for this VIN.</p>;
+  if (failed) {
+    return (
+      <p className="text-sm leading-6 text-alert">
+        This vehicle&apos;s inspections could not be loaded.
+      </p>
+    );
+  }
+
+  if (!rows) {
+    return (
+      <div className="space-y-2" aria-busy="true" aria-live="polite">
+        <span className="sr-only">Loading inspections for this vehicle</span>
+        <div className="h-3 w-2/3 animate-pulse bg-ink/10" />
+        <div className="h-3 w-full animate-pulse bg-ink/5" />
+      </div>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <p className="text-sm leading-6 text-steel">
+        No inspections recorded for this VIN.
+      </p>
+    );
+  }
 
   return (
-    <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-      <table className="min-w-full text-xs">
-        <thead className="bg-slate-100 text-slate-600 font-semibold">
+    <div className="overflow-hidden border border-ink/15 bg-white">
+      <table className="data-table">
+        <thead>
           <tr>
-            <th className="py-1.5 px-2 text-left w-6" />
-            <th className="py-1.5 px-3 text-left">Date</th>
-            <th className="py-1.5 px-3 text-left">Report #</th>
-            <th className="py-1.5 px-3 text-left">Level</th>
-            <th className="py-1.5 px-3 text-left">Plate</th>
-            <th className="py-1.5 px-3 text-left">Result</th>
+            <th>
+              <span className="sr-only">Expand report</span>
+            </th>
+            <th>Date</th>
+            <th>Report #</th>
+            <th>Level</th>
+            <th>Plate</th>
+            <th>Result</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody>
           {rows.map((r) => {
             const key = r.inspectionId || `${r.reportState}-${r.reportNumber}`;
             const isOpen = openReport === key;
@@ -238,33 +292,44 @@ function VinReports({ dot, vin }: { dot: string; vin: string }) {
             };
             return (
               <Fragment key={key}>
-                <tr className={isOpen ? 'bg-blue-50/40' : 'hover:bg-slate-50'}>
-                  <td className="py-1.5 px-2 align-middle">
+                <tr className={isOpen ? 'bg-paper/60' : undefined}>
+                  <td className="w-12">
                     {r.inspectionId ? (
                       <button
                         type="button"
                         onClick={toggle}
                         aria-expanded={isOpen}
                         aria-label={isOpen ? 'Hide report details' : 'Show report details'}
-                        className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-blue-700 hover:bg-blue-100 transition-colors"
+                        className="flex h-11 w-11 items-center justify-center text-steel transition-colors hover:text-ink"
                       >
-                        <span className={`inline-block transition-transform ${isOpen ? 'rotate-90' : ''}`}>▸</span>
+                        <ChevronRightIcon
+                          size={16}
+                          className={`transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                        />
                       </button>
                     ) : null}
                   </td>
-                  <td className="py-1.5 px-3 whitespace-nowrap">{r.date}</td>
-                  <td className="py-1.5 px-3">
+                  <td data-label="Date" className="whitespace-nowrap font-mono text-[11px]">
+                    {r.date}
+                  </td>
+                  <td data-label="Report #">
                     {r.inspectionId ? (
-                      <button type="button" onClick={toggle} className="font-mono text-blue-600 hover:underline">
+                      <button
+                        type="button"
+                        onClick={toggle}
+                        className="inline-flex min-h-11 items-center font-mono text-[11px] text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+                      >
                         {r.reportDisplay}
                       </button>
                     ) : (
-                      <span className="font-mono">{r.reportDisplay}</span>
+                      <span className="font-mono text-[11px]">{r.reportDisplay}</span>
                     )}
                   </td>
-                  <td className="py-1.5 px-3">{r.level || '—'}</td>
-                  <td className="py-1.5 px-3 whitespace-nowrap">{r.plate || '—'}</td>
-                  <td className="py-1.5 px-3">
+                  <td data-label="Level">{r.level || '—'}</td>
+                  <td data-label="Plate" className="whitespace-nowrap">
+                    {r.plate || '—'}
+                  </td>
+                  <td data-label="Result">
                     {r.violTotal > 0
                       ? `${r.violTotal} violation${r.violTotal === 1 ? '' : 's'}${
                           r.oosTotal > 0 ? ` · ${r.oosTotal} OOS` : ''
@@ -273,8 +338,8 @@ function VinReports({ dot, vin }: { dot: string; vin: string }) {
                   </td>
                 </tr>
                 {isOpen && (
-                  <tr className="bg-slate-50/70">
-                    <td colSpan={6} className="px-4 pb-4 pt-2">
+                  <tr>
+                    <td colSpan={6} className="data-table-detail bg-paper/40">
                       <InspectionDetail
                         inspectionId={r.inspectionId}
                         report={r.reportNumber}

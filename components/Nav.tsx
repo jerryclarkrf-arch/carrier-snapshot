@@ -3,38 +3,48 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AuthLinks from '@/components/AuthLinks';
+import { BrandLockup } from '@/components/Plate';
+
+const LINKS = [
+  { href: '/', label: 'Lookup' },
+  { href: '/advanced', label: 'Advanced' },
+];
 
 export default function Nav() {
   const path = usePathname();
-  const link = (href: string, label: string) => (
-    <Link
-      href={href}
-      className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-        path === href ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-      }`}
-    >
-      {label}
-    </Link>
-  );
 
   return (
-    <header className="bg-white border-b border-slate-200">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-        <Link href="/" className="flex items-center gap-2 shrink-0">
-          <span className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-extrabold text-sm">CI</span>
-          <span className="text-base font-extrabold text-slate-900 leading-tight">
-            Carrier Intelligence
-            <span className="block text-[10px] font-medium text-slate-400 uppercase tracking-wide">Live FMCSA data</span>
-          </span>
-        </Link>
-        <div className="flex items-center gap-3">
-          <nav className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1">
-            {link('/', 'Simple Search')}
-            {link('/advanced', 'Advanced Search')}
-          </nav>
+    <header className="border-b-2 border-ink bg-paper">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 sm:gap-x-6 sm:px-6 md:py-4">
+        <BrandLockup />
+        <nav
+          aria-label="Primary"
+          className="order-3 -mx-2 flex w-full items-center gap-1 overflow-x-auto md:order-none md:mx-0 md:w-auto"
+        >
+          {LINKS.map((link) => {
+            const active =
+              link.href === '/' ? path === '/' : path.startsWith(link.href);
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                aria-current={active ? 'page' : undefined}
+                className={`relative inline-flex min-h-11 items-center px-3 font-mono text-[11px] uppercase tracking-[0.12em] transition-colors ${
+                  active
+                    ? 'text-ink after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-safety'
+                    : 'text-steel hover:text-ink'
+                }`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="ml-auto flex items-center">
           <AuthLinks />
         </div>
       </div>
+      <div className="road-rule" aria-hidden="true" />
     </header>
   );
 }

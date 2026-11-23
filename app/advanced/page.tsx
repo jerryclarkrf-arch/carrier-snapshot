@@ -3,9 +3,21 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Nav from '@/components/Nav';
+import Footer from '@/components/Footer';
 import CarrierCard, { Carrier } from '@/components/CarrierCard';
 import { authClient } from '@/lib/auth/client';
 import { isRetryable, searchWithRetry } from '@/lib/search-client';
+import {
+  AlertIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ChevronDownIcon,
+  DownloadIcon,
+  InfoIcon,
+  LockIcon,
+  SearchIcon,
+  XIcon,
+} from '@/components/icons';
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
 
@@ -45,12 +57,17 @@ const GROUPS: { key: GroupKey; label: string }[] = [
   { key: 'cargo', label: 'Cargo' },
 ];
 
-const inputCls = 'w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-600 outline-none';
-const labelCls = 'text-[11px] font-bold text-slate-500 uppercase tracking-wide';
-const presetCls = 'px-2.5 py-1 rounded-lg text-[11px] font-semibold text-blue-700 border border-blue-200 bg-white hover:bg-blue-50 transition-colors';
+const inputCls = 'field';
+const labelCls = 'field-label';
+const presetCls =
+  'inline-flex min-h-11 items-center rounded-[2px] border border-ink/25 bg-white px-2.5 font-mono text-[10px] uppercase tracking-[0.08em] text-ink transition-colors hover:border-ink';
 
 function Panel({ children }: { children: React.ReactNode }) {
-  return <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/60">{children}</div>;
+  return (
+    <div className="mt-2 border border-ink/15 bg-white p-3 sm:p-4">
+      {children}
+    </div>
+  );
 }
 
 function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -58,7 +75,12 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
     <button
       type="button"
       onClick={onClick}
-      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${on ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+      aria-pressed={on}
+      className={`inline-flex min-h-11 items-center justify-center rounded-[2px] border px-2.5 py-1 text-left font-mono text-[10px] tracking-[0.02em] transition-colors ${
+        on
+          ? 'border-ink bg-ink text-paper'
+          : 'border-ink/20 bg-white text-ink hover:border-ink/50'
+      }`}
     >
       {children}
     </button>
@@ -68,9 +90,13 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
 function Group({ title, children, hint }: { title: string; children: React.ReactNode; hint?: string }) {
   return (
     <div className="space-y-2">
-      <div className="flex items-baseline justify-between">
-        <p className={labelCls}>{title}</p>
-        {hint && <p className="text-[10px] text-slate-400">{hint}</p>}
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="field-label mb-0">{title}</p>
+        {hint && (
+          <p className="font-mono text-[9px] uppercase tracking-[0.06em] text-steel">
+            {hint}
+          </p>
+        )}
       </div>
       {children}
     </div>
@@ -136,7 +162,11 @@ export default function AdvancedSearch() {
       f.authorityRoles.length, f.cargo.length, f.rating.length, f.fleetSize.length,
       f.priorRevoked, f.status !== 'all',
     ].some(Boolean);
-    if (!anyField) { alert('Fill in at least one field or filter.'); return; }
+    if (!anyField) {
+      setError('Choose at least one filter before running the search.');
+      setSearched(false);
+      return;
+    }
     const dateErr = validateDates();
     if (dateErr) { setError(dateErr); return; }
 
@@ -184,8 +214,7 @@ export default function AdvancedSearch() {
     }
   }
 
-  function clear() {
-    setF({ ...empty });
+  function resetResults() {
     setResults([]);
     setTotal(0);
     setPage(1);
@@ -194,6 +223,39 @@ export default function AdvancedSearch() {
     setError(null);
     setNotice(null);
     setCanRetry(false);
+  }
+
+  function clear() {
+    setF({ ...empty });
+    resetResults();
+    setOpenGroup(null);
+  }
+
+  function clearGroup(key: GroupKey) {
+    setF((p) => {
+      switch (key) {
+        case 'identity':
+          return { ...p, name: '', dba: '', usdot: '', contact: '' };
+        case 'location':
+          return {
+            ...p,
+            docket: '',
+            docketPrefix: '',
+            phone: '',
+            city: '',
+            zip: '',
+            state: '',
+            operation: '',
+          };
+        case 'authority':
+          return { ...p, status: 'all', authorityRoles: [], priorRevoked: false };
+        case 'safety':
+          return { ...p, rating: [], fleetSize: [], powerMin: '', powerMax: '' };
+        case 'cargo':
+          return { ...p, cargo: [] };
+      }
+    });
+    resetResults();
   }
 
   function exportCSV() {
@@ -208,92 +270,116 @@ export default function AdvancedSearch() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100">
+    <div className="flex min-h-screen flex-col bg-paper">
       <Nav />
-      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        {/* Hero */}
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-white to-blue-50 px-6 py-8 shadow-sm">
-          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+      <main id="main" className="flex-1">
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:py-10">
+          <header className="flex flex-col gap-3 border-b-2 border-ink pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-blue-700">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-                Live FMCSA data
-              </span>
-              <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">Advanced Search</h1>
-              <p className="mt-2 max-w-xl text-sm text-slate-600">
-                Filter the FMCSA census by authority date, identity, location, authority type, safety, fleet size and
-                cargo — combine as many as you need.
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-steel">
+                FMCSA census · filter builder
+              </p>
+              <h1 className="mt-1 font-display text-4xl font-semibold leading-[0.95] sm:text-5xl">
+                Build a carrier list
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-steel">
+                Filter the census by authority date, identity, location,
+                authority, safety, fleet, and cargo. Combine as many as the
+                file needs.
               </p>
             </div>
-            <dl className="grid grid-cols-3 gap-3 text-center sm:gap-4">
-              {[
-                ['26', 'Fleet buckets'],
-                ['29', 'Cargo types'],
-                ['1 mo', 'Max date range'],
-              ].map(([value, label]) => (
-                <div key={label} className="rounded-xl border border-slate-200 bg-white/80 px-3 py-2">
-                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
-                  <dd className="text-sm font-extrabold text-slate-800">{value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        </section>
-
-        <form onSubmit={(e) => { e.preventDefault(); run(1); }} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-5 sm:p-6">
-          {/* Authority New (date range) — always visible */}
-          <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className={`${labelCls} text-blue-800`}>Authority New (date range)</p>
-              <p className="text-[10px] font-medium text-blue-700/70">Max 1 month</p>
+            <div className="flex flex-col items-start gap-2 sm:items-end">
+              <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-steel">
+                26 fleet buckets · 29 cargo types · 1-month window
+              </p>
+              <Link
+                href="/"
+                className="inline-flex min-h-11 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-ink hover:underline"
+              >
+                <ArrowLeftIcon size={14} />
+                Simple lookup
+              </Link>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <input
-                type="date"
-                aria-label="Authority new from"
-                value={f.addedFrom}
-                onChange={set('addedFrom')}
-                className={inputCls + ' w-44'}
-              />
-              <span className="text-sm text-slate-400">to</span>
-              <input
-                type="date"
-                aria-label="Authority new to"
-                value={f.addedTo}
-                onChange={set('addedTo')}
-                className={inputCls + ' w-44'}
-              />
-              <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
-                <button type="button" onClick={() => preset(7)} className={presetCls}>Last 7 days</button>
-                <button type="button" onClick={() => preset(30)} className={presetCls}>Last 30 days</button>
-                {(f.addedFrom || f.addedTo) && (
-                  <button
-                    type="button"
-                    onClick={() => setF((p) => ({ ...p, addedFrom: '', addedTo: '' }))}
-                    className={presetCls}
-                  >
-                    Clear dates
-                  </button>
-                )}
+          </header>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-12 lg:gap-8">
+            <section aria-label="Filters" className="lg:col-span-4">
+              <form onSubmit={(e) => { e.preventDefault(); run(1); }} className="space-y-4">
+          {/* Authority New (date range) — always visible */}
+          <div className="border border-ink/20 border-l-4 border-l-safety bg-white p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="field-label mb-0">Authority new</p>
+              <p className="font-mono text-[9px] uppercase tracking-[0.06em] text-steel">
+                Max 1 month
+              </p>
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <div>
+                <label htmlFor="added-from" className="field-label">
+                  From
+                </label>
+                <input
+                  id="added-from"
+                  type="date"
+                  value={f.addedFrom}
+                  onChange={set('addedFrom')}
+                  className={inputCls}
+                />
               </div>
+              <div>
+                <label htmlFor="added-to" className="field-label">
+                  To
+                </label>
+                <input
+                  id="added-to"
+                  type="date"
+                  value={f.addedTo}
+                  onChange={set('addedTo')}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <button type="button" onClick={() => preset(7)} className={presetCls}>
+                Last 7 days
+              </button>
+              <button type="button" onClick={() => preset(30)} className={presetCls}>
+                Last 30 days
+              </button>
+              {(f.addedFrom || f.addedTo) && (
+                <button
+                  type="button"
+                  onClick={() => setF((p) => ({ ...p, addedFrom: '', addedTo: '' }))}
+                  className={presetCls}
+                >
+                  Clear dates
+                </button>
+              )}
             </div>
           </div>
 
           {/* Collapsed filter groups */}
-          <div className="space-y-3 border-t border-slate-100 pt-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className={labelCls}>More filters</p>
-              <p className="text-[11px] text-slate-500">
+          <div className="border-t border-ink/15 pt-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-steel">
+                Filters
+              </p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-steel">
                 {applied} applied
                 {applied > 0 && (
-                  <button type="button" onClick={clear} className="ml-2 font-semibold text-blue-700 hover:underline">
+                  <button
+                    type="button"
+                    onClick={clear}
+                    className="ml-2 text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+                  >
                     Reset all
                   </button>
                 )}
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
+            {!openGroup && (
+            <div className="mt-2 divide-y divide-ink/10 border-y border-ink/10">
               {GROUPS.map((g) => {
                 const isOpen = openGroup === g.key;
                 const n = counts[g.key];
@@ -303,48 +389,70 @@ export default function AdvancedSearch() {
                     type="button"
                     onClick={() => setOpenGroup(isOpen ? null : g.key)}
                     aria-expanded={isOpen}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                      isOpen
-                        ? 'bg-blue-600 border-blue-600 text-white'
-                        : n > 0
-                          ? 'bg-blue-50 border-blue-200 text-blue-800'
-                          : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
-                    }`}
+                    className="flex min-h-12 w-full items-center justify-between gap-2 px-1 text-left transition-colors hover:bg-paper/60"
                   >
-                    {g.label}
-                    {n > 0 && (
-                      <span
-                        className={`min-w-4 h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center ${
-                          isOpen ? 'bg-white/25 text-white' : 'bg-blue-600 text-white'
-                        }`}
-                      >
-                        {n}
-                      </span>
-                    )}
-                    <span className={`text-[9px] transition-transform ${isOpen ? 'rotate-180' : ''}`}>▾</span>
+                    <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink">
+                      {g.label}
+                      {n > 0 && (
+                        <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1 font-mono text-[9px] text-paper">
+                          {n}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronDownIcon
+                      size={16}
+                      className={`shrink-0 text-steel transition-transform ${
+                        isOpen ? 'rotate-180' : ''
+                      }`}
+                    />
                   </button>
                 );
               })}
             </div>
+            )}
+
+            {openGroup && (
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOpenGroup(null)}
+                  className="inline-flex min-h-11 items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+                >
+                  <ArrowLeftIcon size={14} />
+                  All filters
+                </button>
+                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-steel">
+                  {GROUPS.find((g) => g.key === openGroup)?.label}
+                </span>
+              </div>
+            )}
 
             {openGroup === 'identity' && (
               <Panel>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="space-y-1">
-                    <label className={labelCls}>Legal Name</label>
-                    <input placeholder="e.g. ABC Trucking" value={f.name} onChange={set('name')} className={inputCls} />
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="filter-legal-name" className={labelCls}>
+                      Legal name
+                    </label>
+                    <input id="filter-legal-name" placeholder="e.g. ABC Trucking" value={f.name} onChange={set('name')} className={inputCls} />
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>DBA Name</label>
-                    <input placeholder="Doing business as" value={f.dba} onChange={set('dba')} className={inputCls} />
+                  <div>
+                    <label htmlFor="filter-dba" className={labelCls}>
+                      DBA name
+                    </label>
+                    <input id="filter-dba" placeholder="Doing business as" value={f.dba} onChange={set('dba')} className={inputCls} />
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>DOT #</label>
-                    <input placeholder="e.g. 3270258" inputMode="numeric" value={f.usdot} onChange={set('usdot')} className={inputCls} />
+                  <div>
+                    <label htmlFor="filter-usdot" className={labelCls}>
+                      DOT #
+                    </label>
+                    <input id="filter-usdot" placeholder="e.g. 3270258" inputMode="numeric" value={f.usdot} onChange={set('usdot')} className={inputCls} />
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Contact (Owner/Officer)</label>
-                    <input placeholder="e.g. Travis Martin" value={f.contact} onChange={set('contact')} className={inputCls} />
+                  <div>
+                    <label htmlFor="filter-contact" className={labelCls}>
+                      Contact (owner / officer)
+                    </label>
+                    <input id="filter-contact" placeholder="e.g. Travis Martin" value={f.contact} onChange={set('contact')} className={inputCls} />
                   </div>
                 </div>
               </Panel>
@@ -352,43 +460,55 @@ export default function AdvancedSearch() {
 
             {openGroup === 'location' && (
               <Panel>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <label className={labelCls}>Docket # + Prefix</label>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label htmlFor="filter-docket" className={labelCls}>
+                      Docket # + prefix
+                    </label>
                     <div className="flex gap-2">
-                      <select value={f.docketPrefix} onChange={set('docketPrefix')} className={inputCls + ' w-28 shrink-0'}>
+                      <select aria-label="Docket prefix" value={f.docketPrefix} onChange={set('docketPrefix')} className={inputCls + ' w-24 shrink-0'}>
                         <option value="">Any</option>
                         <option value="MC">MC</option>
                         <option value="MX">MX</option>
                         <option value="FF">FF</option>
                       </select>
-                      <input placeholder="e.g. 1032275" inputMode="numeric" value={f.docket} onChange={set('docket')} className={inputCls} />
+                      <input id="filter-docket" placeholder="e.g. 1032275" inputMode="numeric" value={f.docket} onChange={set('docket')} className={inputCls} />
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Phone Number</label>
-                    <input placeholder="e.g. 7068323093" inputMode="numeric" value={f.phone} onChange={set('phone')} className={inputCls} />
+                  <div>
+                    <label htmlFor="filter-phone" className={labelCls}>
+                      Phone number
+                    </label>
+                    <input id="filter-phone" placeholder="e.g. 7068323093" inputMode="numeric" value={f.phone} onChange={set('phone')} className={inputCls} />
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>City</label>
-                    <input placeholder="e.g. Atlanta" value={f.city} onChange={set('city')} className={inputCls} />
+                  <div>
+                    <label htmlFor="filter-city" className={labelCls}>
+                      City
+                    </label>
+                    <input id="filter-city" placeholder="e.g. Atlanta" value={f.city} onChange={set('city')} className={inputCls} />
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>ZIP Code</label>
-                    <input placeholder="e.g. 30303" inputMode="numeric" value={f.zip} onChange={set('zip')} className={inputCls} />
+                  <div>
+                    <label htmlFor="filter-zip" className={labelCls}>
+                      ZIP code
+                    </label>
+                    <input id="filter-zip" placeholder="e.g. 30303" inputMode="numeric" value={f.zip} onChange={set('zip')} className={inputCls} />
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>State</label>
-                    <select value={f.state} onChange={set('state')} className={inputCls}>
-                      <option value="">All States</option>
+                  <div>
+                    <label htmlFor="filter-state" className={labelCls}>
+                      State
+                    </label>
+                    <select id="filter-state" value={f.state} onChange={set('state')} className={inputCls}>
+                      <option value="">All states</option>
                       {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
                       <option value="CA">Canada</option>
                       <option value="MX">Mexico</option>
                     </select>
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Carrier Operations</label>
-                    <select value={f.operation} onChange={set('operation')} className={inputCls}>
+                  <div className="sm:col-span-2">
+                    <label htmlFor="filter-operation" className={labelCls}>
+                      Carrier operations
+                    </label>
+                    <select id="filter-operation" value={f.operation} onChange={set('operation')} className={inputCls}>
                       <option value="">Any operation</option>
                       <option value="A">Interstate</option>
                       <option value="B">Intrastate / Hazmat</option>
@@ -402,21 +522,23 @@ export default function AdvancedSearch() {
             {openGroup === 'authority' && (
               <Panel>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div className="space-y-1">
-                      <label className={labelCls}>Authority Status</label>
-                      <select value={f.status} onChange={set('status')} className={inputCls}>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="filter-status" className={labelCls}>
+                        Authority status
+                      </label>
+                      <select id="filter-status" value={f.status} onChange={set('status')} className={inputCls}>
                         <option value="all">All statuses</option>
                         <option value="active">Active authority</option>
                         <option value="inactive">Inactive authority</option>
                         <option value="pending">Pending authority</option>
                         <option value="none">No MC authority</option>
                       </select>
-                      <p className="text-[10px] text-slate-400">Dates no longer imply &quot;active only&quot;.</p>
+                      <p className="field-hint">Dates no longer imply &quot;active only&quot;.</p>
                     </div>
-                    <div className="space-y-1">
-                      <label className={labelCls}>Prior revocation</label>
-                      <label className="flex items-center gap-2 h-[46px] text-sm text-slate-700">
+                    <div>
+                      <span className={labelCls}>Prior revocation</span>
+                      <label className="check-row">
                         <input
                           type="checkbox"
                           checked={f.priorRevoked}
@@ -434,12 +556,14 @@ export default function AdvancedSearch() {
                           {r === 'MC' ? 'Carrier' : r === 'MX' ? 'Broker' : 'Freight Forwarder'}
                         </Chip>
                       ))}
-                      <span className="mx-1 text-xs text-slate-400">Match:</span>
-                      <label className="flex items-center gap-1 text-xs text-slate-600">
-                        <input type="radio" name="authorityOp" checked={f.authorityOp === 'or'} onChange={() => setF((p) => ({ ...p, authorityOp: 'or' }))} /> Any (Or)
+                      <span className="mx-1 font-mono text-[10px] uppercase tracking-[0.08em] text-steel">
+                        Match
+                      </span>
+                      <label className="check-row text-xs">
+                        <input type="radio" name="authorityOp" checked={f.authorityOp === 'or'} onChange={() => setF((p) => ({ ...p, authorityOp: 'or' }))} /> Any (OR)
                       </label>
-                      <label className="flex items-center gap-1 text-xs text-slate-600">
-                        <input type="radio" name="authorityOp" checked={f.authorityOp === 'and'} onChange={() => setF((p) => ({ ...p, authorityOp: 'and' }))} /> All (And)
+                      <label className="check-row text-xs">
+                        <input type="radio" name="authorityOp" checked={f.authorityOp === 'and'} onChange={() => setF((p) => ({ ...p, authorityOp: 'and' }))} /> All (AND)
                       </label>
                     </div>
                   </Group>
@@ -450,7 +574,7 @@ export default function AdvancedSearch() {
             {openGroup === 'safety' && (
               <Panel>
                 <div className="space-y-4">
-                  <Group title="Safety Rating">
+                  <Group title="Safety rating">
                     <div className="flex flex-wrap gap-2">
                       {(['Satisfactory', 'Conditional', 'Unsatisfactory'] as const).map((r) => (
                         <Chip key={r} on={f.rating.includes(r)} onClick={() => toggleIn('rating')(r)}>{r}</Chip>
@@ -458,15 +582,15 @@ export default function AdvancedSearch() {
                     </div>
                   </Group>
 
-                  <Group title="Power Units (min – max)">
-                    <div className="flex flex-wrap gap-2 max-w-md">
-                      <input placeholder="Min" inputMode="numeric" value={f.powerMin} onChange={set('powerMin')} className={inputCls} />
-                      <input placeholder="Max" inputMode="numeric" value={f.powerMax} onChange={set('powerMax')} className={inputCls} />
+                  <Group title="Power units (min – max)">
+                    <div className="grid max-w-md grid-cols-2 gap-2">
+                      <input aria-label="Minimum power units" placeholder="Min" inputMode="numeric" value={f.powerMin} onChange={set('powerMin')} className={inputCls} />
+                      <input aria-label="Maximum power units" placeholder="Max" inputMode="numeric" value={f.powerMax} onChange={set('powerMax')} className={inputCls} />
                     </div>
                   </Group>
 
-                  <Group title="Fleet Size (power units buckets)">
-                    <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-13 gap-1.5">
+                  <Group title="Fleet size (power unit buckets)">
+                    <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
                       {FLEET_BUCKETS.map(([letter, range]) => (
                         <Chip key={letter} on={f.fleetSize.includes(letter)} onClick={() => toggleIn('fleetSize')(letter)}>
                           {letter} · {range}
@@ -480,7 +604,7 @@ export default function AdvancedSearch() {
 
             {openGroup === 'cargo' && (
               <Panel>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-72 overflow-y-auto">
+                <div className="grid max-h-80 grid-cols-1 gap-1.5 overflow-y-auto sm:grid-cols-2">
                   {CARGO_OPTIONS.map((c) => (
                     <Chip key={c} on={f.cargo.includes(c)} onClick={() => toggleIn('cargo')(c)}>{c}</Chip>
                   ))}
@@ -489,153 +613,219 @@ export default function AdvancedSearch() {
             )}
           </div>
 
-          {error && (
-            <div className="flex flex-col gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 sm:flex-row sm:items-center sm:justify-between">
-              <p>{error}</p>
-              {canRetry && (
-                <button
-                  type="button"
-                  onClick={() => run(page)}
-                  disabled={loading}
-                  className="shrink-0 self-start rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100 disabled:opacity-50 sm:self-auto"
-                >
-                  Retry
-                </button>
-              )}
+          <div className="sticky bottom-0 z-20 border-t-2 border-ink bg-paper/95 py-3 backdrop-blur">
+            {error && (
+              <div
+                role="alert"
+                className="mb-2 flex items-center justify-between gap-2 border border-alert/30 bg-alert/5 px-2 py-1 text-xs leading-5 text-alert"
+              >
+                <span className="flex items-start gap-2">
+                  <AlertIcon size={14} className="mt-0.5 shrink-0" />
+                  {error}
+                </span>
+                {canRetry && (
+                  <button
+                    type="button"
+                    onClick={() => run(page)}
+                    disabled={loading}
+                    className="inline-flex min-h-11 shrink-0 items-center px-1 font-medium underline decoration-alert/40 underline-offset-2"
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn btn-primary flex-1"
+              >
+                <SearchIcon size={14} />
+                {loading ? 'Searching…' : 'Run search'}
+              </button>
+              <button type="button" onClick={clear} className="btn btn-secondary">
+                Reset
+              </button>
             </div>
-          )}
+          </div>
+        </form>
+      </section>
 
-          {notice && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              {notice}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
-            <button
-              type="submit"
-              disabled={loading}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-7 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+      <section aria-labelledby="advanced-results" className="lg:col-span-8">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-ink pb-3">
+          <div>
+            <h2
+              id="advanced-results"
+              className="font-display text-2xl font-semibold leading-none"
             >
-              {loading ? 'Searching…' : 'Search'}
-            </button>
+              Results
+            </h2>
+            <p
+              aria-live="polite"
+              className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-steel"
+            >
+              {searched && !loading
+                ? `${total.toLocaleString()} ${
+                    total === 1 ? 'carrier' : 'carriers'
+                  } · ${applied} active`
+                : 'Run a filter set to build a list'}
+            </p>
+          </div>
+          {results.length > 0 &&
+            (loggedIn ? (
+              <button
+                type="button"
+                onClick={exportCSV}
+                className="btn btn-secondary"
+              >
+                <DownloadIcon size={14} />
+                Export CSV
+              </button>
+            ) : (
+              <Link href="/auth/sign-up" className="btn btn-secondary">
+                <LockIcon size={14} />
+                Sign in to export
+              </Link>
+            ))}
+        </div>
+
+        {applied > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {(f.addedFrom || f.addedTo) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setF((p) => ({ ...p, addedFrom: '', addedTo: '' }));
+                  resetResults();
+                }}
+                className="inline-flex min-h-11 items-center gap-1.5 border border-ink/20 bg-white px-2.5 font-mono text-[10px] uppercase tracking-[0.06em] text-ink transition-colors hover:border-ink"
+              >
+                Authority new
+                <XIcon size={12} />
+              </button>
+            )}
+            {GROUPS.map(
+              (g) =>
+                counts[g.key] > 0 && (
+                  <button
+                    key={g.key}
+                    type="button"
+                    onClick={() => clearGroup(g.key)}
+                    className="inline-flex min-h-11 items-center gap-1.5 border border-ink/20 bg-white px-2.5 font-mono text-[10px] uppercase tracking-[0.06em] text-ink transition-colors hover:border-ink"
+                  >
+                    {g.label} · {counts[g.key]}
+                    <XIcon size={12} />
+                  </button>
+                )
+            )}
             <button
               type="button"
               onClick={clear}
-              className="rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+              className="inline-flex min-h-11 items-center px-2 font-mono text-[10px] uppercase tracking-[0.06em] text-steel underline decoration-steel/40 underline-offset-2 hover:text-ink"
             >
-              Reset
+              Clear all
             </button>
-            <Link href="/" className="text-xs font-semibold text-blue-700 hover:underline sm:ml-auto">
-              ← Simple search
-            </Link>
-          </div>
-        </form>
-
-        {/* Results header */}
-        {searched && !loading && !error && (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-slate-800">
-                {total.toLocaleString()} {total === 1 ? 'carrier' : 'carriers'} found
-              </p>
-              <p className="text-xs text-slate-500">
-                {applied} filter{applied === 1 ? '' : 's'} applied
-                {pages > 1 && <> · page {page} of {pages}</>}
-              </p>
-            </div>
-            {results.length > 0 &&
-              (loggedIn ? (
-                <button
-                  type="button"
-                  onClick={exportCSV}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50"
-                >
-                  Export CSV
-                </button>
-              ) : (
-                <Link
-                  href="/auth/sign-up"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50"
-                >
-                  Sign in to export
-                </Link>
-              ))}
           </div>
         )}
 
-        {/* Loading skeletons */}
+        {notice && (
+          <div
+            role="status"
+            className="mt-3 flex items-start gap-2 border border-ink/20 bg-white px-3 py-2 text-sm leading-5 text-steel"
+          >
+            <InfoIcon size={16} className="mt-0.5 shrink-0" />
+            <span>{notice}</span>
+          </div>
+        )}
+
         {loading && (
-          <div className="space-y-4" aria-busy="true" aria-live="polite">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="w-full space-y-2">
-                    <div className="h-4 w-1/3 rounded bg-slate-200 animate-pulse" />
-                    <div className="h-3 w-1/2 rounded bg-slate-100 animate-pulse" />
+          <div className="mt-4" aria-busy="true" aria-live="polite">
+            <span className="sr-only">Loading carriers</span>
+            <div className="border-2 border-ink bg-white">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="border-b border-ink/15 p-4 last:border-b-0 sm:p-5"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="w-full max-w-md space-y-2">
+                      <div className="h-5 w-28 animate-pulse bg-ink/10" />
+                      <div className="h-7 w-2/3 animate-pulse bg-ink/10" />
+                      <div className="h-3 w-1/2 animate-pulse bg-ink/5" />
+                    </div>
+                    <div className="h-10 w-24 animate-pulse border border-ink/10 bg-ink/5" />
                   </div>
-                  <div className="h-9 w-24 shrink-0 rounded-lg bg-slate-100 animate-pulse" />
                 </div>
-                <div className="mt-4 h-3 w-2/3 rounded bg-slate-100 animate-pulse" />
-              </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!loading && results.length > 0 && (
+          <div className="result-list mt-4 border-2 border-ink bg-white">
+            {results.map((c) => (
+              <CarrierCard key={c.usdot} carrier={c} />
             ))}
           </div>
         )}
 
-        {/* Results */}
-        {!loading && (
-          <div className="space-y-4">
-            {results.map((c) => <CarrierCard key={c.usdot} carrier={c} />)}
-          </div>
-        )}
-
-        {/* Empty state */}
         {searched && !loading && !error && results.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
-            <p className="text-sm font-semibold text-slate-700">No carriers matched those filters</p>
-            <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">
-              Try widening the date range, removing a filter group, or looking the carrier up by name or
-              USDOT in simple search.
+          <div className="mt-4 border-2 border-ink bg-white p-5 sm:p-6">
+            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-alert">
+              No match
             </p>
-            <Link
-              href="/"
-              className="mt-4 inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-            >
-              Go to simple search
+            <h3 className="mt-1 font-display text-2xl font-semibold leading-tight">
+              No carriers matched those filters.
+            </h3>
+            <p className="mt-1 max-w-xl text-sm leading-6 text-steel">
+              Widen the date range, remove a filter group, or look the carrier
+              up by name or USDOT in simple lookup.
+            </p>
+            <Link href="/" className="btn btn-secondary mt-4">
+              Go to simple lookup
             </Link>
           </div>
         )}
 
-        {/* Pagination */}
         {pages > 1 && !loading && (
-          <div className="flex flex-col items-center justify-between gap-3 pt-2 sm:flex-row">
-            <p className="text-xs text-slate-500">
-              Showing {(page - 1) * 50 + 1}–{Math.min(page * 50, total)} of {total.toLocaleString()}
+          <div className="mt-4 flex flex-col gap-3 border-t border-ink/15 pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-steel">
+              Showing {(page - 1) * 50 + 1}–{Math.min(page * 50, total)} of{' '}
+              {total.toLocaleString()}
             </p>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => run(page - 1)}
                 disabled={page <= 1 || loading}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40"
+                aria-label="Previous page"
+                className="btn btn-secondary px-3"
               >
-                ← Prev
+                <ArrowLeftIcon size={16} />
+                Prev
               </button>
-              <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
+              <span className="font-mono text-[11px] text-steel">
                 {page} / {pages}
               </span>
               <button
                 type="button"
                 onClick={() => run(page + 1)}
                 disabled={page >= pages || loading}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40"
+                aria-label="Next page"
+                className="btn btn-secondary px-3"
               >
-                Next →
+                Next
+                <ArrowRightIcon size={16} />
               </button>
             </div>
           </div>
         )}
-      </div>
-    </main>
+      </section>
+          </div>
+        </div>
+      </main>
+      <Footer />
+    </div>
   );
 }

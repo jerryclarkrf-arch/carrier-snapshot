@@ -3,6 +3,13 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Nav from '@/components/Nav';
+import Footer from '@/components/Footer';
+import {
+  AlertIcon,
+  ArrowLeftIcon,
+  ClockIcon,
+  XIcon,
+} from '@/components/icons';
 
 interface AlertRow {
   id: number;
@@ -17,11 +24,28 @@ interface WatchRow {
   created_at: string;
 }
 
+const fmtDate = (value: string) =>
+  new Date(value).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+
+const fmtDateTime = (value: string) =>
+  new Date(value).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [watches, setWatches] = useState<WatchRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([fetch('/api/alerts'), fetch('/api/watchlist')])
@@ -35,93 +59,208 @@ export default function AlertsPage() {
   }, []);
 
   const removeWatch = async (usdot: string) => {
+    setRemoving(usdot);
     try {
-      await fetch('/api/watchlist?usdot=' + usdot, { method: 'DELETE' });
+      const res = await fetch('/api/watchlist?usdot=' + usdot, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('remove failed');
       setWatches((ws) => ws.filter((x) => x.usdot !== usdot));
     } catch {
-      setError('Failed to remove watch.');
+      setError('Failed to remove watch. Try again.');
+    } finally {
+      setRemoving(null);
     }
   };
 
   return (
-    <main className="min-h-screen bg-slate-100">
+    <div className="flex min-h-screen flex-col bg-paper">
       <Nav />
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-extrabold text-slate-900">Alerts &amp; Watchlist</h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Watched carriers are checked against the FMCSA census on an hourly schedule; changes create alerts here.
-            </p>
-          </div>
-          <Link href="/account" className="text-sm font-semibold text-blue-700 hover:underline">
-            ← Back to account
-          </Link>
-        </div>
+      <main id="main" className="flex-1">
+        <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:py-10">
+          <header className="flex flex-col gap-3 border-b-2 border-ink pb-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-steel">
+                Account · alerts
+              </p>
+              <h1 className="mt-1 font-display text-4xl font-semibold leading-[0.95] sm:text-5xl">
+                Alerts &amp; watchlist
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-steel">
+                Watched carriers are checked against the FMCSA census daily.
+                Changes to name, phone, email, insurance, or authority create an
+                alert here.
+              </p>
+            </div>
+            <Link
+              href="/account"
+              className="inline-flex min-h-11 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-ink hover:underline"
+            >
+              <ArrowLeftIcon size={14} />
+              Back to account
+            </Link>
+          </header>
 
-        {error && (
-          <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg px-4 py-3">{error}</div>
-        )}
+          <p className="mt-3 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em] text-steel">
+            <ClockIcon size={14} />
+            Checked daily · 03:00 UTC
+          </p>
 
-        {loading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
-        ) : (
-          <>
-            <section className="space-y-3">
-              <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Watchlist</h2>
-              {watches.length === 0 ? (
-                <p className="text-sm text-slate-500 bg-white border border-dashed border-slate-300 rounded-xl p-6 text-center">
-                  No carriers watched yet. Expand any search result and click <strong>&quot;+ Watch changes&quot;</strong>.
-                </p>
-              ) : (
-                <div className="divide-y divide-slate-100 bg-white border border-slate-200 rounded-xl overflow-hidden">
-                  {watches.map((w) => (
-                    <div key={w.usdot} className="flex items-center justify-between gap-3 px-4 py-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate">{w.legal_name || 'Unknown carrier'}</p>
-                        <p className="text-xs text-slate-500">USDOT {w.usdot} · watched {new Date(w.created_at).toLocaleDateString()}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeWatch(w.usdot)}
-                        className="text-xs font-semibold text-rose-600 border border-rose-200 bg-white rounded-lg px-3 py-1.5 hover:bg-rose-50 transition-colors shrink-0"
+          {error && (
+            <div
+              role="alert"
+              className="mt-4 flex items-start gap-2 border border-alert/30 bg-alert/5 px-3 py-2 text-sm leading-5 text-alert"
+            >
+              <AlertIcon size={16} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {loading ? (
+            <div
+              className="mt-6 grid gap-6 lg:grid-cols-2"
+              aria-busy="true"
+              aria-live="polite"
+            >
+              {[0, 1].map((i) => (
+                <div key={i} className="border-2 border-ink bg-white p-4">
+                  <div className="h-5 w-32 animate-pulse bg-ink/10" />
+                  <div className="mt-4 space-y-3">
+                    <div className="h-9 w-full animate-pulse bg-ink/5" />
+                    <div className="h-9 w-full animate-pulse bg-ink/5" />
+                    <div className="h-9 w-4/5 animate-pulse bg-ink/5" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <section aria-labelledby="watchlist-heading">
+                <div className="flex items-baseline justify-between gap-2 border-b-2 border-ink pb-2">
+                  <h2
+                    id="watchlist-heading"
+                    className="font-display text-2xl font-semibold leading-none"
+                  >
+                    Watchlist
+                  </h2>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-steel">
+                    {watches.length} watched
+                  </span>
+                </div>
+
+                {watches.length === 0 ? (
+                  <div className="mt-3 border border-ink/20 bg-white p-5">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-steel">
+                      No carriers watched
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-steel">
+                      Open any search result and choose{' '}
+                      <span className="font-medium text-ink">Watch changes</span>{' '}
+                      to start tracking it.
+                    </p>
+                    <Link href="/" className="btn btn-secondary mt-4">
+                      Run a lookup
+                    </Link>
+                  </div>
+                ) : (
+                  <ul className="mt-3 border-2 border-ink bg-white">
+                    {watches.map((w) => (
+                      <li
+                        key={w.usdot}
+                        className="flex flex-col gap-3 border-b border-ink/15 p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
                       >
-                        Unwatch
-                      </button>
-                    </div>
-                  ))}
+                        <div className="min-w-0">
+                          <p className="break-words font-display text-xl font-semibold leading-tight text-ink">
+                            {w.legal_name || 'Unknown carrier'}
+                          </p>
+                          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.08em] text-steel">
+                            USDOT {w.usdot} · watched{' '}
+                            <time dateTime={w.created_at}>
+                              {fmtDate(w.created_at)}
+                            </time>
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeWatch(w.usdot)}
+                          disabled={removing === w.usdot}
+                          aria-label={`Unwatch ${
+                            w.legal_name || `USDOT ${w.usdot}`
+                          }`}
+                          className="btn btn-danger shrink-0 self-start sm:self-auto"
+                        >
+                          {removing === w.usdot ? (
+                            'Removing…'
+                          ) : (
+                            <>
+                              <XIcon size={14} />
+                              Unwatch
+                            </>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+              <section aria-labelledby="changes-heading">
+                <div className="flex items-baseline justify-between gap-2 border-b-2 border-ink pb-2">
+                  <h2
+                    id="changes-heading"
+                    className="font-display text-2xl font-semibold leading-none"
+                  >
+                    Recent changes
+                  </h2>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-steel">
+                    {alerts.length} alerts
+                  </span>
                 </div>
-              )}
-            </section>
 
-            <section className="space-y-3">
-              <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Recent changes</h2>
-              {alerts.length === 0 ? (
-                <p className="text-sm text-slate-500 bg-white border border-dashed border-slate-300 rounded-xl p-6 text-center">
-                  No changes detected yet. Alerts appear here when a watched carrier&apos;s name, phone, email, insurance,
-                  or authority status changes.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {alerts.map((a) => (
-                    <div key={a.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-semibold text-slate-800 truncate">
-                          {a.legal_name || 'Carrier'} <span className="text-slate-400 font-normal">· USDOT {a.usdot}</span>
+                {alerts.length === 0 ? (
+                  <div className="mt-3 border border-ink/20 bg-white p-5">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-steel">
+                      No changes detected
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-steel">
+                      Alerts appear when a watched carrier&apos;s name, phone,
+                      email, insurance, or authority status changes.
+                    </p>
+                  </div>
+                ) : (
+                  <ol className="relative mt-4 space-y-4 border-l-2 border-ink/15 pl-4">
+                    {alerts.map((a) => (
+                      <li key={a.id} className="relative">
+                        <span
+                          className="absolute -left-[1.32rem] top-1.5 h-2 w-2 rounded-full border-2 border-paper bg-safety"
+                          aria-hidden="true"
+                        />
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <p className="text-sm font-medium text-ink">
+                            {a.legal_name || 'Carrier'}{' '}
+                            <span className="font-mono text-[10px] font-normal text-steel">
+                              USDOT {a.usdot}
+                            </span>
+                          </p>
+                          <time
+                            dateTime={a.detected_at}
+                            className="font-mono text-[10px] text-steel"
+                          >
+                            {fmtDateTime(a.detected_at)}
+                          </time>
+                        </div>
+                        <p className="mt-1 text-sm leading-5 text-steel">
+                          {a.summary}
                         </p>
-                        <span className="text-xs text-slate-400 shrink-0">
-                          {new Date(a.detected_at).toLocaleString()}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-600 mt-1">{a.summary}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </>
-        )}
-      </div>
-    </main>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
+            </div>
+          )}
+        </div>
+      </main>
+      <Footer />
+    </div>
   );
 }

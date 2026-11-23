@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Section from '@/components/Section';
+import { CheckIcon, CopyIcon } from '@/components/icons';
 
 interface Unit {
   unit: number; type: string; make: string; license: string; licenseState: string;
@@ -33,9 +34,13 @@ const titleCase = (v: string) =>
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex justify-between gap-3 border-b border-slate-100 py-1 last:border-0">
-      <span className="text-slate-500 shrink-0">{label}</span>
-      <span className="font-medium text-slate-800 text-right break-words">{value || '—'}</span>
+    <div className="flex flex-wrap justify-between gap-x-4 gap-y-0.5 border-b border-ink/10 py-1.5 last:border-0">
+      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-steel">
+        {label}
+      </span>
+      <span className="max-w-[65%] break-words text-right text-sm text-ink">
+        {value || '—'}
+      </span>
     </div>
   );
 }
@@ -53,7 +58,7 @@ function VinCell({ vin }: { vin: string }) {
   };
   return (
     <span className="inline-flex items-center gap-1">
-      <span className="font-mono">{vin}</span>
+      <span className="font-mono text-[11px]">{vin}</span>
       <button
         type="button"
         onClick={(e) => {
@@ -62,9 +67,9 @@ function VinCell({ vin }: { vin: string }) {
         }}
         aria-label="Copy VIN"
         title="Copy VIN"
-        className="px-1.5 py-0.5 rounded border border-slate-200 text-[10px] font-semibold text-slate-500 hover:text-blue-700 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+        className="flex h-11 w-11 items-center justify-center text-steel transition-colors hover:text-ink"
       >
-        {copied ? '✓' : 'Copy'}
+        {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
       </button>
     </span>
   );
@@ -118,19 +123,23 @@ export default function InspectionDetail({
 
   if (loading) {
     return (
-      <div className="space-y-2" aria-busy="true">
-        <div className="h-3 w-40 rounded bg-slate-200 animate-pulse" />
-        <div className="h-3 w-full rounded bg-slate-200 animate-pulse" />
-        <div className="h-3 w-5/6 rounded bg-slate-200 animate-pulse" />
-        <div className="h-3 w-2/3 rounded bg-slate-200 animate-pulse" />
+      <div className="space-y-2" aria-busy="true" aria-live="polite">
+        <span className="sr-only">Loading inspection report</span>
+        <div className="h-3 w-40 animate-pulse bg-ink/10" />
+        <div className="h-3 w-full animate-pulse bg-ink/5" />
+        <div className="h-3 w-5/6 animate-pulse bg-ink/5" />
+        <div className="h-3 w-2/3 animate-pulse bg-ink/5" />
       </div>
     );
   }
 
   if (error === 'unauthorized') {
     return (
-      <p className="text-xs text-slate-600">
-        <Link href="/auth/sign-in" className="font-semibold text-blue-700 hover:underline">
+      <p className="text-sm leading-6 text-steel">
+        <Link
+          href="/auth/sign-in"
+          className="font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+        >
           Sign in
         </Link>{' '}
         to view full inspection report details.
@@ -139,7 +148,11 @@ export default function InspectionDetail({
   }
 
   if (error || !data) {
-    return <p className="text-xs text-slate-500">Report details could not be loaded. Please try again.</p>;
+    return (
+      <p className="text-sm leading-6 text-alert">
+        Report details could not be loaded. Please try again.
+      </p>
+    );
   }
 
   const h = data.header;
@@ -151,34 +164,36 @@ export default function InspectionDetail({
   return (
     <div className="space-y-4 pt-1">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-bold text-slate-700">Report Details</p>
+        <p className="font-display text-xl font-semibold leading-none text-ink">
+          Report details
+        </p>
         <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-              h.smsIncluded ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-            }`}
-          >
-            Include in SMS: {h.smsIncluded ? 'Yes' : 'No'}
+          <span className="inline-flex min-h-6 items-center border border-ink/20 bg-paper px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink">
+            In SMS: {h.smsIncluded ? 'Yes' : 'No'}
           </span>
           <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-              h.violTotal === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+            className={`inline-flex min-h-6 items-center border px-2 font-mono text-[10px] uppercase tracking-[0.08em] ${
+              h.violTotal === 0
+                ? 'border-authority/30 bg-authority/5 text-authority'
+                : 'border-alert/30 bg-alert/5 text-alert'
             }`}
           >
             {h.violTotal === 0
               ? 'No violations'
-              : `${h.violTotal} violation${h.violTotal === 1 ? '' : 's'}${h.oosTotal > 0 ? ` · ${h.oosTotal} OOS` : ''}`}
+              : `${h.violTotal} violation${h.violTotal === 1 ? '' : 's'}${
+                  h.oosTotal > 0 ? ` · ${h.oosTotal} OOS` : ''
+                }`}
           </span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-        <Section title="Carrier Information">
+      <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
+        <Section title="Carrier information">
           <Field label="Name" value={h.carrierName} />
           <Field label="DOT#" value={h.dotNumber} />
           <Field label="Physical address" value={h.carrierAddress} />
         </Section>
-        <Section title="Inspection Information">
+        <Section title="Inspection information">
           <Field label="Report #" value={<span className="font-mono">{h.reportDisplay}</span>} />
           <Field label="State" value={h.reportState} />
           <Field label="Date" value={h.date} />
@@ -191,36 +206,40 @@ export default function InspectionDetail({
         </Section>
       </div>
 
-      <Section title={`Vehicle Information${data.units.length ? ` (${data.units.length})` : ''}`}>
+      <Section title={`Vehicle information${data.units.length ? ` (${data.units.length})` : ''}`}>
         {data.units.length === 0 ? (
-          <p className="text-xs text-slate-500">
+          <p className="text-sm leading-6 text-steel">
             Vehicle details are not published by FMCSA for this inspection
             {h.smsIncluded ? '.' : ' (it is excluded from the SMS snapshot).'}
           </p>
         ) : (
-          <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white">
-            <table className="min-w-full text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold">
+          <div className="overflow-hidden border border-ink/15 bg-white">
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <th className="py-2 px-3 text-left">Unit</th>
-                  <th className="py-2 px-3 text-left">Type</th>
-                  <th className="py-2 px-3 text-left">Year</th>
-                  <th className="py-2 px-3 text-left">Manufacturer</th>
-                  <th className="py-2 px-3 text-left">License #</th>
-                  <th className="py-2 px-3 text-left">VIN</th>
+                  <th>Unit</th>
+                  <th>Type</th>
+                  <th>Year</th>
+                  <th>Manufacturer</th>
+                  <th>License #</th>
+                  <th>VIN</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {data.units.map((u) => (
                   <tr key={u.unit}>
-                    <td className="py-2 px-3 font-semibold">{u.unit}</td>
-                    <td className="py-2 px-3">{filled(titleCase(u.type))}</td>
-                    <td className="py-2 px-3">{filled(u.year)}</td>
-                    <td className="py-2 px-3">{filled(u.make)}</td>
-                    <td className="py-2 px-3 whitespace-nowrap">
+                    <td data-label="Unit" className="font-medium">
+                      {u.unit}
+                    </td>
+                    <td data-label="Type">{filled(titleCase(u.type))}</td>
+                    <td data-label="Year" className="font-mono text-[11px]">
+                      {filled(u.year)}
+                    </td>
+                    <td data-label="Manufacturer">{filled(u.make)}</td>
+                    <td data-label="License #" className="whitespace-nowrap">
                       {u.license ? `${u.licenseState ? `${u.licenseState} ` : ''}${u.license}` : '—'}
                     </td>
-                    <td className="py-2 px-3">{u.vin ? <VinCell vin={u.vin} /> : '—'}</td>
+                    <td data-label="VIN">{u.vin ? <VinCell vin={u.vin} /> : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -228,7 +247,7 @@ export default function InspectionDetail({
           </div>
         )}
         {decodedNote.length > 0 && (
-          <p className="mt-1.5 text-[11px] text-slate-500">
+          <p className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-steel">
             Decoded from VIN (NHTSA vPIC): {decodedNote.join(' | ')}
           </p>
         )}
@@ -236,29 +255,37 @@ export default function InspectionDetail({
 
       <Section title={`Violations${h.violTotal > 0 ? ` (${h.violTotal})` : ''}`}>
         {data.violations.length > 0 ? (
-          <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white">
-            <table className="min-w-full text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold">
+          <div className="overflow-hidden border border-ink/15 bg-white">
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <th className="py-2 px-3 text-left w-8">#</th>
-                  <th className="py-2 px-3 text-left">Code</th>
-                  <th className="py-2 px-3 text-left">Description</th>
-                  <th className="py-2 px-3 text-left">Unit</th>
-                  <th className="py-2 px-3 text-left">OOS</th>
+                  <th>#</th>
+                  <th>Code</th>
+                  <th>Description</th>
+                  <th>Unit</th>
+                  <th>OOS</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {data.violations.map((v) => (
                   <tr key={`${v.seqNo}-${v.code}`}>
-                    <td className="py-2 px-3 text-slate-400">{v.seqNo}</td>
-                    <td className="py-2 px-3 font-mono whitespace-nowrap">{v.code}</td>
-                    <td className="py-2 px-3">{v.description}</td>
-                    <td className="py-2 px-3 whitespace-nowrap">{filled(v.unit)}</td>
-                    <td className="py-2 px-3">
+                    <td data-label="#" className="font-mono text-[11px] text-steel">
+                      {v.seqNo}
+                    </td>
+                    <td data-label="Code" className="whitespace-nowrap font-mono text-[11px]">
+                      {v.code}
+                    </td>
+                    <td data-label="Description">{v.description}</td>
+                    <td data-label="Unit" className="whitespace-nowrap">
+                      {filled(v.unit)}
+                    </td>
+                    <td data-label="OOS">
                       {v.oos ? (
-                        <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 font-semibold">OOS</span>
+                        <span className="inline-flex min-h-6 items-center border border-alert/30 bg-alert/5 px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-alert">
+                          OOS
+                        </span>
                       ) : (
-                        <span className="text-slate-400">—</span>
+                        <span className="text-steel">—</span>
                       )}
                     </td>
                   </tr>
@@ -267,12 +294,12 @@ export default function InspectionDetail({
             </table>
           </div>
         ) : h.violTotal > 0 ? (
-          <p className="text-xs text-slate-500">
-            {h.violTotal} violation{h.violTotal === 1 ? '' : 's'} on record, but the detail lines are not published for
-            this report.
+          <p className="text-sm leading-6 text-steel">
+            {h.violTotal} violation{h.violTotal === 1 ? '' : 's'} on record, but
+            the detail lines are not published for this report.
           </p>
         ) : (
-          <p className="text-xs text-slate-500">No violations</p>
+          <p className="text-sm leading-6 text-steel">No violations</p>
         )}
       </Section>
     </div>
