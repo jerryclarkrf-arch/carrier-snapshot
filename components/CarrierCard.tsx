@@ -141,10 +141,12 @@ function CopyBtn({
   value,
   label,
   text = 'Copy',
+  compact = false,
 }: {
   value: string;
   label: string;
   text?: string;
+  compact?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -163,11 +165,21 @@ function CopyBtn({
         e.stopPropagation();
         void copy();
       }}
-      aria-label={`Copy ${label}`}
-      title={`Copy ${label}`}
-      className="btn btn-ghost px-2 text-[10px]"
+      aria-label={copied ? `${label} copied` : `Copy ${label}`}
+      title={copied ? `Copied ${label}` : `Copy ${label}`}
+      className={
+        compact
+          ? 'pointer-events-auto relative z-10 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[2px] border border-ink/20 bg-white text-steel transition-colors hover:border-ink hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink'
+          : 'btn btn-ghost px-2 text-[10px]'
+      }
     >
-      {copied ? (
+      {compact ? (
+        copied ? (
+          <CheckIcon size={13} />
+        ) : (
+          <CopyIcon size={13} />
+        )
+      ) : copied ? (
         <>
           <CheckIcon size={14} />
           Copied
@@ -433,13 +445,16 @@ export default function CarrierCard({ carrier: base }: { carrier: Carrier }) {
                     {phone}
                   </span>
                 ) : (
-                  <a
-                    href={`tel:${phone.replace(/\D/g, '')}`}
-                    className="pointer-events-auto relative z-10 inline-flex items-center gap-1 hover:text-ink"
-                  >
-                    <PhoneIcon size={12} />
-                    {phone}
-                  </a>
+                  <span className="inline-flex items-center gap-1">
+                    <a
+                      href={`tel:${phone.replace(/\D/g, '')}`}
+                      className="pointer-events-auto relative z-10 inline-flex items-center gap-1 hover:text-ink"
+                    >
+                      <PhoneIcon size={12} />
+                      {phone}
+                    </a>
+                    <CopyBtn value={phone} label="phone number" compact />
+                  </span>
                 ))}
               {!phone && <span>Phone not listed</span>}
               {email &&
@@ -449,13 +464,16 @@ export default function CarrierCard({ carrier: base }: { carrier: Carrier }) {
                     {email}
                   </span>
                 ) : (
-                  <a
-                    href={`mailto:${email}`}
-                    className="pointer-events-auto relative z-10 inline-flex min-w-0 items-center gap-1 break-all hover:text-ink"
-                  >
-                    <MailIcon size={12} className="shrink-0" />
-                    {email}
-                  </a>
+                  <span className="inline-flex min-w-0 items-center gap-1">
+                    <a
+                      href={`mailto:${email}`}
+                      className="pointer-events-auto relative z-10 inline-flex min-w-0 items-center gap-1 break-all hover:text-ink"
+                    >
+                      <MailIcon size={12} className="shrink-0" />
+                      {email}
+                    </a>
+                    <CopyBtn value={email} label="email address" compact />
+                  </span>
                 ))}
               {c.addDate && (
                 <span>
