@@ -20,6 +20,11 @@ import {
 } from '@/components/icons';
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
+const COUNTRY_OPTIONS = [
+  { value: 'US', label: 'United States' },
+  { value: 'CA', label: 'Canada' },
+  { value: 'MX', label: 'Mexico' },
+];
 
 const CARGO_OPTIONS = [
   'General Freight', 'Household Goods', 'Metal (Sheets/Coils/Rolls)', 'Motor Vehicles',
@@ -39,7 +44,7 @@ const FLEET_BUCKETS: [string, string][] = [
 ];
 
 const empty = {
-  name: '', dba: '', usdot: '', docket: '', docketPrefix: '', phone: '', city: '', zip: '', state: '',
+  name: '', dba: '', usdot: '', docket: '', docketPrefix: '', phone: '', city: '', zip: '', state: '', country: '',
   status: 'all', addedFrom: '', addedTo: '', contact: '', authorityOp: 'or', operation: '',
   authorityRoles: [] as string[], cargo: [] as string[], rating: [] as string[],
   fleetSize: [] as string[], powerMin: '', powerMax: '', priorRevoked: false,
@@ -120,7 +125,7 @@ export default function AdvancedSearch() {
 
   const counts: Record<GroupKey, number> = {
     identity: [f.name, f.dba, f.usdot, f.contact].filter((v) => v.trim()).length,
-    location: [f.docket, f.docketPrefix, f.phone, f.city, f.zip, f.state, f.operation].filter((v) => v.trim()).length,
+    location: [f.docket, f.docketPrefix, f.phone, f.city, f.zip, f.state, f.country, f.operation].filter((v) => v.trim()).length,
     authority: (f.status !== 'all' ? 1 : 0) + (f.authorityRoles.length > 0 ? 1 : 0) + (f.priorRevoked ? 1 : 0),
     safety: (f.rating.length > 0 ? 1 : 0) + (f.fleetSize.length > 0 ? 1 : 0) + (f.powerMin || f.powerMax ? 1 : 0),
     cargo: f.cargo.length > 0 ? 1 : 0,
@@ -157,7 +162,7 @@ export default function AdvancedSearch() {
 
   async function run(targetPage = 1) {
     const anyField = [
-      f.name, f.dba, f.usdot, f.docket, f.docketPrefix, f.phone, f.city, f.zip, f.state,
+      f.name, f.dba, f.usdot, f.docket, f.docketPrefix, f.phone, f.city, f.zip, f.state, f.country,
       f.contact, f.operation, f.addedFrom, f.addedTo, f.powerMin, f.powerMax,
       f.authorityRoles.length, f.cargo.length, f.rating.length, f.fleetSize.length,
       f.priorRevoked, f.status !== 'all',
@@ -181,6 +186,7 @@ export default function AdvancedSearch() {
     if (f.docket) params.set('docket', f.docket);
     if (f.docketPrefix) params.set('docketPrefix', f.docketPrefix);
     if (f.state) params.set('state', f.state);
+    if (f.country) params.set('country', f.country);
     if (f.status !== 'all') params.set('status', f.status);
     if (f.addedFrom) params.set('addedFrom', f.addedFrom);
     if (f.addedTo) params.set('addedTo', f.addedTo);
@@ -245,6 +251,7 @@ export default function AdvancedSearch() {
             city: '',
             zip: '',
             state: '',
+            country: '',
             operation: '',
           };
         case 'authority':
@@ -500,8 +507,15 @@ export default function AdvancedSearch() {
                     <select id="filter-state" value={f.state} onChange={set('state')} className={inputCls}>
                       <option value="">All states</option>
                       {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-                      <option value="CA">Canada</option>
-                      <option value="MX">Mexico</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="filter-country" className={labelCls}>
+                      Country
+                    </label>
+                    <select id="filter-country" value={f.country} onChange={set('country')} className={inputCls}>
+                      <option value="">All countries</option>
+                      {COUNTRY_OPTIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
                     </select>
                   </div>
                   <div className="sm:col-span-2">

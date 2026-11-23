@@ -222,8 +222,11 @@ export async function GET(req: NextRequest) {
   const fCity = (p.get('city') || '').trim();
   const fZip = (p.get('zip') || '').trim();
   const fContact = (p.get('contact') || '').trim();
-  // Shared filters
+  // Shared filters. `state` is always the physical U.S. state; country is a
+  // separate filter so CA means California (country=CA means Canada).
   const state = (p.get('state') || '').trim().toUpperCase();
+  const countryParam = (p.get('country') || '').trim().toUpperCase();
+  const country = countryParam === 'US' || countryParam === 'CA' || countryParam === 'MX' ? countryParam : '';
   const status = p.get('status') || 'all';
   const addedFrom = (p.get('addedFrom') || '').trim();
   const addedTo = (p.get('addedTo') || '').trim();
@@ -263,7 +266,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const hasDiscrete = !!(fName || fDba || fUsdot || fMc || fDocket || fDocketPrefix || fPhone || fCity || fZip || fContact ||
+  const hasDiscrete = !!(fName || fDba || fUsdot || fMc || fDocket || fDocketPrefix || fPhone || fCity || fZip || fContact || country ||
     authorityRoles.length || operation || cargo.length || ratings.length || fleetSize.length ||
     Number.isFinite(powerMin) || Number.isFinite(powerMax) || priorRevoked || pendingAuthority);
   const hasDates = !!(addedFrom || addedTo);
@@ -276,7 +279,7 @@ export async function GET(req: NextRequest) {
 
   const cacheKey = JSON.stringify([q, fName, fDba, fUsdot, fMc, fDocket, fDocketPrefix, fPhone, fCity, fZip, fContact,
     [...authorityRoles].sort(), authorityOp, operation, [...cargo].sort(), [...ratings].sort(), [...fleetSize].sort(),
-    powerMin, powerMax, priorRevoked, pendingAuthority, state, status, addedFrom, addedTo, limit, page, loggedIn]);
+    powerMin, powerMax, priorRevoked, pendingAuthority, state, country, status, addedFrom, addedTo, limit, page, loggedIn]);
   const hit = cached(cacheKey) as Record<string, unknown> | null;
   if (hit) return NextResponse.json({ ...hit, cached: true });
 
@@ -326,11 +329,16 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  if (state === 'CA') {
+  // `state` is the physical U.S. state. Do not map a state code to a
+  // nationality here: CA is California, while country=CA is Canada.
+  if (country === 'US') {
+    wheres.push(`(phy_nationality_indicator='U' OR phy_nationality_indicator IS NULL)`);
+  } else if (country === 'CA') {
     wheres.push(`phy_nationality_indicator='C'`);
-  } else if (state === 'MX') {
+  } else if (country === 'MX') {
     wheres.push(`phy_nationality_indicator='M'`);
-  } else if (state) {
+  }
+  if (state) {
     wheres.push(`phy_state='${esc(state)}'`);
   }
   // Authority status is a filter of its own: applying a date range must never
